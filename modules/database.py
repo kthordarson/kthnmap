@@ -16,7 +16,9 @@ mysql_cmds = {
 						scanid int primary key not null auto_increment,
 						xmlfilename  varchar(255),
 						scandate varchar(255),
-						scanstart_str varchar(255)
+						scanstart_str varchar(255),
+						hostcount int,
+						servicecount int
 					);
  """,
  'hosts' : """
@@ -42,7 +44,9 @@ mysql_cmds = {
 						scanid int,
 						hostid int,
 						key scans_fk (scanid),
-						foreign key(scanid) references scans(scanid)
+						key hosts_fk (hostid),
+						foreign key(scanid) references scans(scanid),
+						foreign key(hostid) references hosts(hostid)
 					);
  """,
   'services' : """
@@ -51,7 +55,11 @@ mysql_cmds = {
 						serviceid int primary key not null auto_increment,
 						portnumber int,
 						scanid int,
-						hostid int
+						hostid int,
+						key scans_fk (scanid),
+						key hosts_fk (hostid),
+						foreign key(scanid) references scans(scanid),
+						foreign key(hostid) references hosts(hostid)
 					);
  """
 }
@@ -76,19 +84,36 @@ def create_tables(session):
 #	session.execute('create table if not exists scans (id int primary key not null auto_increment);')
 	#session.commit()
 
-def to_database(scan):
+def check_existing_xml(session, xmlfile):
+	sql = f"select * from scans where xmlfilename = '{xmlfile}'"
+	res = session.execute(sql).fetchall()
+	if len(res) == 0:
+		return False
+	else:
+		return True
+
+def get_engine():
 	dbuser = 'nmapscan'
 	dbpass = 'nmapscan'
 	dbhost = 'elitedesk'
 	dbname = 'nmapscans'
 	dburl = f"mysql+pymysql://{dbuser}:{dbpass}@{dbhost}/{dbname}?charset=utf8mb4"
-	engine = create_engine(dburl)
+	return create_engine(dburl)
+
+def to_database(scan=None, xmlfile=None, drop=False, check=True):
 	#Session = sessionmaker(bind=engine)
 	#session = Session()
 	#metadata = MetaData(engine)
+	logger.debug(f'[todb] scan: {scan} xmlfile: {xmlfile} drop: {drop} check: {check}')
+	engine = get_engine()
 	with Session(engine) as session:
-		#drop_tables(session)
+		if drop:
+			drop_tables(session)
 		create_tables(session)
+		if check:
+			if check_existing_xml(session, xmlfile):
+				logger.warning(f'xmlfile {xmlfile} already in database')
+				return
 		session.add(scan)
 		session.commit()
 		logger.debug(f'Added scan to database {scan.scanid}')
@@ -102,5 +127,5 @@ def to_database(scan):
 			host.services = services
 			session.add(host)
 			session.commit()
-			logger.debug(f'Added host to database {host} {host.ports}')
+			#logger.debug(f'Added host to database {host} {host.ports}')
 		logger.debug(f'Added {len(hosts)} to database')

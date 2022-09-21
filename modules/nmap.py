@@ -29,11 +29,17 @@ class NmapScan(Base):
     scandate = Column(String(255))
     scanstart_str = Column(String(255))
     xmlfilename = Column(String(255))
+    hostcount = Column(Integer)
+    servicecount = Column(Integer)
+    #Hosts = Column(String(255))
+    #Services = Column(String(255))
     # scanargs = Column(String(255))
     def __init__(self, xmlFile):
         # Import xml files
         self.Hosts = {}
         self.Services = []
+        self.hostcount = 0
+        self.servicecount = 0
         self.xmlfilename = xmlFile
         self.parseNmapXmlFile(xmlFile)
 
@@ -60,17 +66,11 @@ class NmapScan(Base):
         self.scanstart_str = root.attrib['startstr']
         # self.scanargs = root.attrib['args']
         for xHost in nmap_xml.findall('.//host'):
-            # Get IP address
             ip = xHost.find("address[@addrtype='ipv4']").get('addr')
-            # Add host to dictionary
             if ip not in self.Hosts:
                 self.Hosts[ip] = NmapHost(ip, self.scanid)
+                self.hostcount += 1
             curHost = self.Hosts[ip]
-            # Record what files host was found in
-            if(nmapXmlFilename not in curHost.filesWithHost):
-                curHost.filesWithHost.append(nmapXmlFilename)
-
-            # Attempt to get hostname
             try:
                 curHost.hostname = xHost.find('.//hostname').get('name') # hostname will be in nmap xml if PTR (reverse lookup) record present
             except:
@@ -83,6 +83,7 @@ class NmapScan(Base):
             for xPort in xHost.findall('.//port'):
                 # Only parse open ports
                 if xPort.find('.//state').get('state') == 'open':
+                    self.servicecount += 1
                     curPortId = int(xPort.get('portid'))
                     curProtocol = xPort.get('protocol')
                     curService = ''
@@ -193,11 +194,11 @@ class NmapService(Base):
         self.hosts = []
         self.ports = []
 
-    def __str__(self):
-        return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
+    # def __str__(self):
+    #     return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
 
-    def __repr__(self):
-        return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
+    # def __repr__(self):
+    #     return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
 
 
 class NmapHost(Base):
@@ -219,12 +220,13 @@ class NmapHost(Base):
         self.filesWithHost = [] # List of nmap files host was found in
         # logger.debug(f'host init scan:{self.scanid} {scanid}')
 
-    def __str__(self):
-        return f'ip={self.ip} hostname={self.hostname} alive={self.alive} ports={len(self.ports)}'
+    # def __str__(self):
+    #     return f'ip={self.ip} hostname={self.hostname} alive={self.alive} ports={len(self.ports)}'
 
+    # def __repr__(self):
+    #     return f'ip={self.ip} hostname={self.hostname} alive={self.alive} ports={len(self.ports)}'
     def __repr__(self):
-        return f'ip={self.ip} hostname={self.hostname} alive={self.alive} ports={len(self.ports)}'
-
+        return self.ip
     def getState(self):
         state = "up"
         if not self.alive:
