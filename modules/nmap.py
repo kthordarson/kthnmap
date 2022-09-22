@@ -55,7 +55,7 @@ class NmapScan(Base):
 
 
     def __repr__(self):
-        return f'nmapoutput: hosts={len(self.Hosts)} services={len(self.Services)}'
+        return f'nmapscan date={self.scanstart_str} hosts={len(self.Hosts)} services={len(self.Services)}'
 
     def parseNmapXmlFile(self, nmapXmlFilename):
         count = 0

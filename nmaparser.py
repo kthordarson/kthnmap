@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-#
+# todo create history table for each ip/scan
 from loguru import logger
 import os, glob, sys, re, subprocess
 import xml.etree.ElementTree as ET
@@ -24,19 +24,16 @@ def main():
 	# Parse nmap file
 	if options.xmlfilename:
 		scan = nmap.NmapScan(options.xmlfilename)
-		print(f"Summary total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
-		print(scan)
-		print(options)
+		logger.info(f"Total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
 		to_database(scan=scan, xmlfile=options.xmlfilename, check=options.check, sessionname=options.sessionname)
 	elif options.xmlpath:
 		idx = 0
+		xmlcount = len(glob.glob(options.xmlpath + '/*.xml'))
 		for xmlfile in glob.glob(options.xmlpath + '/*.xml'):
-			scan = nmap.NmapScan(xmlfile)
-			print(f"Total hosts {len(scan.Hosts)} date:{scan.scanstart_str} file:{xmlfile} {idx}/{len(glob.glob(options.xmlpath + '/*.xml'))}")
-			print(scan)
-			print(options)
-			to_database(scan=scan, xmlfile=xmlfile, check=options.check, sessionname=options.sessionname)
 			idx += 1
+			scan = nmap.NmapScan(xmlfile)
+			logger.info(f"file:{xmlfile} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")
+			to_database(scan=scan, xmlfile=xmlfile, check=options.check, sessionname=options.sessionname)
 
 if __name__ == "__main__":
 	main()

@@ -107,8 +107,8 @@ def create_tables(session):
 	for table in mysql_cmds:
 		session.execute(mysql_cmds[table])
 		session.commit()
-		logger.debug(f'create {table}')
-	logger.debug(f'create done')
+		# logger.debug(f'create {table}')
+	# logger.debug(f'create done')
 #	session.execute('create table if not exists scans (id int primary key not null auto_increment);')
 	#session.commit()
 
@@ -143,12 +143,11 @@ def to_database(scan=None, xmlfile=None, check=True, sessionname=None):
 		scan.sessionname = sessionname
 		session.add(scan)
 		session.commit()
-		logger.debug(f'Added scan to database {scan.scanid}')
 		ns = NmapSession(sessionname=sessionname)
 		ns.scanid = scan.scanid
 		session.add(ns)
 		session.commit()
-		logger.debug(f'Added session {ns} to database {ns.sessionid} {ns.scanid}')
+		logger.debug(f'Added session to database sessid:{ns.sessionid} scanid:{ns.scanid}')
 		hosts = scan.getHosts()
 		hostcount = 0
 		errcount = 0
