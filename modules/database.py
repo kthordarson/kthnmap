@@ -1,3 +1,4 @@
+from os import getenv
 import re
 from inspect import isclass
 from dataclasses import dataclass, fields, field, is_dataclass
@@ -8,6 +9,7 @@ from sqlalchemy.orm import sessionmaker, Session
 import sqlalchemy
 from loguru import logger
 import datetime
+from .nmap import NmapSession
 
 mysql_cmds = {
 'scans' : """
@@ -17,8 +19,20 @@ mysql_cmds = {
 						xmlfilename  varchar(255),
 						scandate varchar(255),
 						scanstart_str varchar(255),
+						sessionname varchar(255),
 						hostcount int,
 						servicecount int
+					);
+ """,
+'sessions' : """
+					create table if not exists sessions
+					(
+						sessionid int primary key not null auto_increment,
+						sessionname varchar(255),
+						scanid int,
+						key scans_fk (scanid),
+						foreign key(scanid) references scans(scanid)
+
 					);
  """,
  'hosts' : """
@@ -93,14 +107,14 @@ def check_existing_xml(session, xmlfile):
 		return True
 
 def get_engine():
-	dbuser = 'nmapscan'
-	dbpass = 'nmapscan'
-	dbhost = 'elitedesk'
-	dbname = 'nmapscans'
+	dbuser = getenv('nmapdbuser')
+	dbpass = getenv('nmapdbpass')
+	dbhost = getenv('nmapdbhost')
+	dbname = getenv('nmapdbname')
 	dburl = f"mysql+pymysql://{dbuser}:{dbpass}@{dbhost}/{dbname}?charset=utf8mb4"
 	return create_engine(dburl)
 
-def to_database(scan=None, xmlfile=None, drop=False, check=True):
+def to_database(scan=None, xmlfile=None, drop=False, check=True, sessionname=None):
 	#Session = sessionmaker(bind=engine)
 	#session = Session()
 	#metadata = MetaData(engine)
@@ -114,9 +128,15 @@ def to_database(scan=None, xmlfile=None, drop=False, check=True):
 			if check_existing_xml(session, xmlfile):
 				logger.warning(f'xmlfile {xmlfile} already in database')
 				return
+		scan.sessionname = sessionname
 		session.add(scan)
 		session.commit()
 		logger.debug(f'Added scan to database {scan.scanid}')
+		ns = NmapSession(sessionname=sessionname)
+		ns.scanid = scan.scanid
+		session.add(ns)
+		session.commit()
+		logger.debug(f'Added session {ns} to database {ns.sessionid} {ns.scanid}')
 		hosts = scan.getHosts()
 		for host in hosts:
 			host.scanid = scan.scanid

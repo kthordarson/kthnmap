@@ -15,6 +15,7 @@ RELEASE_DATE = "2022-09-20"
 def main():
 	parser = OptionParser(usage="%prog [options] --file xmlfile")
 	parser.add_option("-f","--filename", dest="xmlfilename", help="xmlfilename")
+	parser.add_option("-s","--session", dest="sessionname", help="sessionname")
 	parser.add_option("-d","--drop", dest="droptables", help="drop existing data", action="store", default=False)
 	parser.add_option("-c","--check", dest="check", help="check existing data", action="store", default=True)
 	(options, args) = parser.parse_args()
@@ -24,7 +25,7 @@ def main():
 	print(f"Summary total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
 	print(scan)
 	print(options)
-	to_database(scan=scan, drop=options.droptables, xmlfile=options.xmlfilename, check=options.check)
+	to_database(scan=scan, drop=options.droptables, xmlfile=options.xmlfilename, check=options.check, sessionname=options.sessionname)
 if __name__ == "__main__":
 	main()
 

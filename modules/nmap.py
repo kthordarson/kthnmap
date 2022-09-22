@@ -21,6 +21,15 @@ def sortIpList(ip_list):
 
 
 Base = declarative_base()
+
+class NmapSession(Base):
+    __tablename__ = 'sessions'
+    sessionid = Column(Integer, primary_key=True)
+    sessionname = Column(String(255))
+    scanid = Column(Integer, ForeignKey('scans.scanid'))
+    def __init__(self, sessionname):
+        self.sessionname = sessionname
+
 class NmapScan(Base):
     __tablename__ = 'scans'
     scanid = Column(Integer, primary_key=True)
@@ -31,6 +40,7 @@ class NmapScan(Base):
     xmlfilename = Column(String(255))
     hostcount = Column(Integer)
     servicecount = Column(Integer)
+    sessionname = Column(String(255))
     #Hosts = Column(String(255))
     #Services = Column(String(255))
     # scanargs = Column(String(255))
