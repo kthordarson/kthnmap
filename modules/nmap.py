@@ -43,7 +43,7 @@ class NmapScan(Base):
     sessionname = Column(String(255))
     #Hosts = Column(String(255))
     #Services = Column(String(255))
-    # scanargs = Column(String(255))
+    scanargs = Column(String(1024))
     def __init__(self, xmlFile):
         # Import xml files
         self.Hosts = {}
@@ -74,39 +74,40 @@ class NmapScan(Base):
         root = nmap_xml.getroot()
         self.scandate = root.attrib['start']
         self.scanstart_str = root.attrib['startstr']
-        # self.scanargs = root.attrib['args']
+        self.scanargs = root.attrib['args']
         for xHost in nmap_xml.findall('.//host'):
             ip = xHost.find("address[@addrtype='ipv4']").get('addr')
             if ip not in self.Hosts:
-                self.Hosts[ip] = NmapHost(ip, self.scanid)
+                try:
+                    hostname = xHost.find('.//hostname').get('name') # hostname will be in nmap xml if PTR (reverse lookup) record present
+                except:
+                    hostname = ip
+                alive = (xHost.find("status").get('state') == 'up')
+                #self.Hosts[ip] = NmapHost(ip, self.scanid)
+                #self.hostcount += 1
+                #curHost = self.Hosts[ip]
+                newhost = NmapHost(ip, self.scanid)
+                newhost.alive = alive
+                newhost.hostname = hostname
+                for xPort in xHost.findall('.//port'):
+                    # Only parse open ports
+                    if xPort.find('.//state').get('state') == 'open':
+                        self.servicecount += 1
+                        curPortId = int(xPort.get('portid'))
+                        curProtocol = xPort.get('protocol')
+                        curService, product, extra, version, ostype = '', '', '', '',''
+    #                    if(None != xPort.find('.//service')):
+                        if xPort.find('.//service'):
+                            curService = xPort.find('.//service').get('name', 'na')
+                            product = xPort.find('.//service').get('product', 'na')
+                            extra = xPort.find('.//service').get('extrainfo', 'na')
+                            version = xPort.find('.//service').get('version', 'na')
+                            ostype = xPort.find('.//service').get('ostype', 'na')
+                            # Store port details
+                        newhost.addPort(curService, curProtocol, curPortId, product, extra, version, ostype)
+                        self.addService(curService, ip, curPortId, product, extra, version, ostype)
+                self.Hosts[ip] = newhost
                 self.hostcount += 1
-            curHost = self.Hosts[ip]
-            try:
-                curHost.hostname = xHost.find('.//hostname').get('name') # hostname will be in nmap xml if PTR (reverse lookup) record present
-            except:
-                curHost.hostname = ip
-
-            # Store host up status
-            curHost.alive = (xHost.find("status").get('state') == 'up')
-
-            # Parse ports
-            for xPort in xHost.findall('.//port'):
-                # Only parse open ports
-                if xPort.find('.//state').get('state') == 'open':
-                    self.servicecount += 1
-                    curPortId = int(xPort.get('portid'))
-                    curProtocol = xPort.get('protocol')
-                    curService = ''
-                    if(None != xPort.find('.//service')):
-                        curService = xPort.find('.//service').get('name')
-                        curServiceProduct = xPort.find('.//service').get('product')
-                        curServiceExtra = xPort.find('.//service').get('extrainfo')
-                        curServiceVersion = xPort.find('.//service').get('version')
-                        curServiceostype = xPort.find('.//service').get('ostype')
-                    # Store port details
-                    curHost.addPort(curProtocol, curPortId, curService, curServiceProduct, curServiceExtra, curServiceVersion, curServiceostype)
-                    # Store service details in global variable
-                    self.addService(curService, ip, curPortId, curServiceProduct, curServiceExtra, curServiceVersion, curServiceostype)
 
     # Ger or create new service with host/ip/port details
     def addService(self, svcName, ip, port, product, extra, version, ostype):
@@ -133,11 +134,12 @@ class NmapScan(Base):
             if service.name == svcName:
                 return service #.name, service.product, service.extra, service.version, service.ostype
 
-        newService = NmapService(name=svcName)
-        newService.product = product
-        newService.extra = extra
-        newService.version = version
-        newService.ostype = ostype
+        #newService = NmapService(name=svcName)
+        newService = NmapService(name=svcName, product=product,extra=extra, version=version, ostype=ostype)
+        #newService.product = product
+        #newService.extra = extra
+        #newService.version = version
+        #newService.ostype = ostype
         self.Services.append(newService)
         # logger.debug(f'[getservice] new service: {newService} total services: {len(self.Services)}')
         return newService
@@ -190,7 +192,7 @@ class NmapScan(Base):
         return sorted(allPorts)
 
 class NmapService(Base):
-    __tablename__ = 'service'
+    __tablename__ = 'services'
     serviceid = Column(Integer, primary_key=True)
     name = Column(String(255))
     product = Column(String(255))
@@ -199,7 +201,14 @@ class NmapService(Base):
     ostype = Column(String(255))
     scanid = Column(Integer, ForeignKey('scans.scanid'))
     hostid = Column(Integer, ForeignKey('hosts.hostid'))
-    def __init__(self,name):#, name, product, extra, version, ostype):
+    def __init__(self,name=None, protocol=None, portnumber=None, service=None, product=None, extra=None, version=None, ostype=None):#, name, product, extra, version, ostype):
+        self.protocol = protocol
+        self.product = product
+        self.extra = extra
+        self.version = version
+        self.ostype = ostype
+        self.portnumber = portnumber
+        self.service = service
         self.name = name
         self.hosts = []
         self.ports = []
@@ -207,8 +216,8 @@ class NmapService(Base):
     # def __str__(self):
     #     return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
 
-    # def __repr__(self):
-    #     return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
+    def __repr__(self):
+        return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
 
 
 class NmapHost(Base):
@@ -219,8 +228,8 @@ class NmapHost(Base):
     alive:bool = Column(Boolean)
     scanid = Column(Integer, ForeignKey('scans.scanid'))
     openports = Column(Integer)
-    ports = Column(String(255))
-    services = Column(String(255))
+    portlist = Column(String(255))
+    servicelist = Column(String(255))
     def __init__(self, ip, scanid):
         self.scanid = scanid
         self.ip = ip
@@ -237,22 +246,28 @@ class NmapHost(Base):
     #     return f'ip={self.ip} hostname={self.hostname} alive={self.alive} ports={len(self.ports)}'
     def __repr__(self):
         return self.ip
+
+    def getHostServices(self):
+        return self.services
+
     def getState(self):
         state = "up"
         if not self.alive:
             state = "down"
         return state
 
-    def addPort(self, protocol, portnumber, service, product, extra, version, ostype):
-        self.addService(service)
+    def addPort(self, name, protocol, portnumber, product, extra, version, ostype):
+        #self.addService(service)
+        newservice = NmapService(name, protocol, portnumber, product, extra, version, ostype)
+        self.services.append(newservice)
         for port in self.ports:
             if port.portnumber == portnumber and port.protocol == protocol:
                 # Port already exists, check if service is blank and add if possible
                 if(len(port.service.strip()) == 0):
-                    port.service = service
+                    port.service = name
                 return
         # Add port if function hasn't already exited
-        self.ports.append(NmapPort(protocol, portnumber, service, product, extra, version, ostype))
+        self.ports.append(NmapPort(protocol, portnumber, name, product, extra, version, ostype))
 
     def addService(self, service):
         if service not in self.services:
@@ -282,7 +297,7 @@ class NmapPort(Base):
     portnumber = Column(Integer)
     protocol = Column(String(255))
     service = Column(String(255))
-    prodcut = Column(String(255))
+    product = Column(String(255))
     extra = Column(String(255))
     version = Column(String(255))
     ostype = Column(String(255))
@@ -292,15 +307,15 @@ class NmapPort(Base):
         self.protocol = protocol
         self.portnumber = port
         self.service = service
-        self.prodcut = product
+        self.product = product
         self.extra = extra
         self.version = version
         self.ostype = ostype
         self.matched = True # Used for filtering
 
     def __str__(self) -> str:
-        return f'proto={self.protocol} portnumber={self.portnumber} service={self.service} prod={self.prodcut} extra={self.extra} version={self.version} ostype={self.ostype}'
+        return f'proto={self.protocol} portnumber={self.portnumber} service={self.service} prod={self.product} extra={self.extra} version={self.version} ostype={self.ostype}'
 
     def __repr__(self) -> str:
-        return f'proto={self.protocol} portnumber={self.portnumber} service={self.service} prod={self.prodcut} extra={self.extra} version={self.version} ostype={self.ostype}'
+        return f'proto={self.protocol} portnumber={self.portnumber} service={self.service} prod={self.product} extra={self.extra} version={self.version} ostype={self.ostype}'
 

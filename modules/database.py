@@ -20,6 +20,7 @@ mysql_cmds = {
 						scandate varchar(255),
 						scanstart_str varchar(255),
 						sessionname varchar(255),
+						scanargs varchar(2024),
 						hostcount int,
 						servicecount int
 					);
@@ -43,8 +44,8 @@ mysql_cmds = {
 						ip  varchar(255),
 						hostname varchar(255),
 						openports int,
-						ports varchar(255),
-						services varchar(255),
+						portlist varchar(255),
+						servicelist varchar(512),
 						alive bool,
 						key scans_fk (scanid),
 						foreign key(scanid) references scans(scanid)
@@ -55,6 +56,12 @@ mysql_cmds = {
 					(
 						portid int primary key not null auto_increment,
 						portnumber int,
+						protocol varchar(255),
+						service varchar(255),
+						product varchar(255),
+						extra varchar(255),
+						version varchar(255),
+						ostype varchar(255),
 						scanid int,
 						hostid int,
 						key scans_fk (scanid),
@@ -67,6 +74,11 @@ mysql_cmds = {
 					create table if not exists services
 					(
 						serviceid int primary key not null auto_increment,
+						name varchar(255),
+						product varchar(255),
+						extra varchar(255),
+						version varchar(255),
+						ostype varchar(255),
 						portnumber int,
 						scanid int,
 						hostid int,
@@ -79,7 +91,9 @@ mysql_cmds = {
 }
 
 
-def drop_tables(session):
+def drop_tables():
+	engine = get_engine()
+	session = Session(engine)
 	session.execute('SET FOREIGN_KEY_CHECKS=0;')
 	session.commit()
 	for table in mysql_cmds:
@@ -114,15 +128,13 @@ def get_engine():
 	dburl = f"mysql+pymysql://{dbuser}:{dbpass}@{dbhost}/{dbname}?charset=utf8mb4"
 	return create_engine(dburl)
 
-def to_database(scan=None, xmlfile=None, drop=False, check=True, sessionname=None):
+def to_database(scan=None, xmlfile=None, check=True, sessionname=None):
 	#Session = sessionmaker(bind=engine)
 	#session = Session()
 	#metadata = MetaData(engine)
-	logger.debug(f'[todb] scan: {scan} xmlfile: {xmlfile} drop: {drop} check: {check}')
+	logger.debug(f'[todb] scan: {scan} xmlfile: {xmlfile} check: {check}')
 	engine = get_engine()
 	with Session(engine) as session:
-		if drop:
-			drop_tables(session)
 		create_tables(session)
 		if check:
 			if check_existing_xml(session, xmlfile):
@@ -138,14 +150,43 @@ def to_database(scan=None, xmlfile=None, drop=False, check=True, sessionname=Non
 		session.commit()
 		logger.debug(f'Added session {ns} to database {ns.sessionid} {ns.scanid}')
 		hosts = scan.getHosts()
+		hostcount = 0
+		errcount = 0
 		for host in hosts:
 			host.scanid = scan.scanid
-			host.openports = len(host.ports)
-			ports = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')
-			host.ports = ports # str([k.portnumber for k in host.ports])
-			services = str([k for k in host.services]).replace('[','').replace(']','')
-			host.services = services
-			session.add(host)
-			session.commit()
+			if len(host.ports) == 0:
+				pass
+				#host.openports = 0
+				#host.ports = 0
+				#host.services = 0
+			else:
+				host.openports = len(host.ports)
+				portlist = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')
+				servicelist = str([k for k in host.services]).replace('[','').replace(']','')
+				host.portlist = portlist
+				host.servicelist = servicelist
+				session.add(host)
+				try:
+					session.commit()
+					hostcount += 1
+				except (ProgrammingError, OperationalError, DataError) as e:
+					logger.error(f'[todb] err:{e} host:{host}')
+					session.rollback()
+					errcount += 1
+
+				ports = [k for k in host.ports]
+				for p in ports:
+					p.scanid = host.scanid
+					p.hostid = host.hostid
+					session.add(p)
+					session.commit()
+#			ports = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')
+#			host.ports = ports # str([k.portnumber for k in host.ports])
+#			services = str([k for k in host.services]).replace('[','').replace(']','')
+#			host.services = services
 			#logger.debug(f'Added host to database {host} {host.ports}')
-		logger.debug(f'Added {len(hosts)} to database')
+		# for service in scan.getServices():
+		# 	service.scanid = scan.scanid
+		# 	session.add(service)
+		# 	session.commit()
+		logger.debug(f'Added {hostcount} of {len(hosts)} to database errors:{errcount}')
