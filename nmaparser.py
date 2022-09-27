@@ -22,10 +22,10 @@ def main():
 	if options.droptables:
 		drop_tables()
 	# Parse nmap file
-	if options.xmlfilename:
+	elif options.xmlfilename:
 		scan = nmap.NmapScan(options.xmlfilename)
 		logger.info(f"Total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
-		to_database(scan=scan, xmlfile=options.xmlfilename, check=options.check, sessionname=options.sessionname)
+		to_database(scan=scan, xmlfile=options.xmlfilename, sessionname=options.sessionname)
 	elif options.xmlpath:
 		idx = 0
 		xmlcount = len(glob.glob(options.xmlpath + '/*.xml'))
@@ -33,7 +33,7 @@ def main():
 			idx += 1
 			scan = nmap.NmapScan(xmlfile)
 			logger.info(f"file:{xmlfile} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")
-			to_database(scan=scan, xmlfile=xmlfile, check=options.check, sessionname=options.sessionname)
+			to_database(scan=scan, xmlfile=xmlfile, sessionname=options.sessionname)
 
 if __name__ == "__main__":
 	main()

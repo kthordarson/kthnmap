@@ -86,26 +86,41 @@ class NmapScan(Base):
                 #self.Hosts[ip] = NmapHost(ip, self.scanid)
                 #self.hostcount += 1
                 #curHost = self.Hosts[ip]
-                newhost = NmapHost(ip, self.scanid)
-                newhost.alive = alive
-                newhost.hostname = hostname
+                newhost = NmapHost(ipaddress=ip, hostname=hostname, scanid=self.scanid, alive=alive)
                 for xPort in xHost.findall('.//port'):
                     # Only parse open ports
                     if xPort.find('.//state').get('state') == 'open':
                         self.servicecount += 1
-                        curPortId = int(xPort.get('portid'))
-                        curProtocol = xPort.get('protocol')
-                        curService, product, extra, version, ostype = '', '', '', '',''
+                        PortNumber = int(xPort.get('portid'))
+                        Protocol = xPort.get('protocol')
+                        #curService, product, extra, version, ostype = '', '', '', '',''
     #                    if(None != xPort.find('.//service')):
-                        if xPort.find('.//service'):
-                            curService = xPort.find('.//service').get('name', 'na')
+                        #if xPort.find('.//service'):
+                        try:
+                            Servicename = xPort.find('.//service').get('name', 'na')
+                        except AttributeError:
+                            Servicename = 'na'
+                        try:
                             product = xPort.find('.//service').get('product', 'na')
+                        except AttributeError:
+                            product = 'na'
+                        try:
                             extra = xPort.find('.//service').get('extrainfo', 'na')
+                        except AttributeError:
+                            extra = 'na'
+                        try:
                             version = xPort.find('.//service').get('version', 'na')
+                        except AttributeError:
+                            version = 'na'
+                        try:
                             ostype = xPort.find('.//service').get('ostype', 'na')
-                            # Store port details
-                        newhost.addPort(curService, curProtocol, curPortId, product, extra, version, ostype)
-                        self.addService(curService, ip, curPortId, product, extra, version, ostype)
+                        except AttributeError:
+                            ostype = 'na'
+                        # logger.debug(f'host={newhost} port={xPort} servicename={Servicename} product={product} extra={extra} version={version} ostype={ostype}')
+                        if Servicename == 'na':
+                            logger.warning(f'host={newhost} port={xPort} servicename={Servicename} product={product} extra={extra} version={version} ostype={ostype}')
+                        newhost.addPortService(servicename=Servicename, protocol=Protocol, portnumber=PortNumber, product=product, extra=extra, version=version, ostype=ostype)
+                        #self.addService(curService, ip, curPortId, product, extra, version, ostype)
                 self.Hosts[ip] = newhost
                 self.hostcount += 1
 
@@ -135,7 +150,7 @@ class NmapScan(Base):
                 return service #.name, service.product, service.extra, service.version, service.ostype
 
         #newService = NmapService(name=svcName)
-        newService = NmapService(name=svcName, product=product,extra=extra, version=version, ostype=ostype)
+        newService = NmapService(servicename=svcName, product=product,extra=extra, version=version, ostype=ostype)
         #newService.product = product
         #newService.extra = extra
         #newService.version = version
@@ -157,18 +172,7 @@ class NmapScan(Base):
             host = copy.deepcopy(self.Hosts[ip])
             if not host.alive:
                 continue
-            matched = True
-            # Check ports (if at least one filter is set)
-            for protocol in PROTOCOLS:
-                for port in [port for port in host.ports if port.protocol == protocol]:
-                    port.matched = True
-                    if port.matched:
-                        matched = True
-
-            if matched:
-                matchedHosts.append(host)
-            else:
-                pass
+            matchedHosts.append(host)
         return matchedHosts
 
     def getAliveHosts(self, filters=None):
@@ -201,17 +205,16 @@ class NmapService(Base):
     ostype = Column(String(255))
     scanid = Column(Integer, ForeignKey('scans.scanid'))
     hostid = Column(Integer, ForeignKey('hosts.hostid'))
-    def __init__(self,name=None, protocol=None, portnumber=None, service=None, product=None, extra=None, version=None, ostype=None):#, name, product, extra, version, ostype):
+    def __init__(self,protocol=None, portnumber=None, servicename=None, product=None, extra=None, version=None, ostype=None):#, name, product, extra, version, ostype):
         self.protocol = protocol
         self.product = product
         self.extra = extra
         self.version = version
         self.ostype = ostype
         self.portnumber = portnumber
-        self.service = service
-        self.name = name
-        self.hosts = []
-        self.ports = []
+        self.servicename = servicename
+        #self.hosts = []
+        #self.ports = []
 
     # def __str__(self):
     #     return f'name={self.name} prod={self.product} extra={self.extra} version={self.version} os={self.ostype}'
@@ -226,13 +229,17 @@ class NmapHost(Base):
     ip = Column(String(255))
     hostname = Column(String(255))
     alive:bool = Column(Boolean)
+    firstseen = Column(String(255))
+    lastseen = Column(String(255))
     scanid = Column(Integer, ForeignKey('scans.scanid'))
     openports = Column(Integer)
     portlist = Column(String(255))
     servicelist = Column(String(255))
-    def __init__(self, ip, scanid):
+    def __init__(self, ipaddress=None, hostname=None, scanid=None, alive=None) :
         self.scanid = scanid
-        self.ip = ip
+        self.ip = ipaddress
+        self.hostname = hostname
+        self.alive = alive
         self.ports = []
         self.services = []
         self.matched = True # Used for filtering
@@ -256,7 +263,14 @@ class NmapHost(Base):
             state = "down"
         return state
 
-    def addPort(self, name, protocol, portnumber, product, extra, version, ostype):
+    def addPortService(self, servicename, protocol, portnumber,  product, extra, version, ostype):
+        newPort = NmapPort(servicename=servicename, protocol=protocol, portnumber=portnumber,  product=product, extra=extra, version=version, ostype=ostype)
+        self.ports.append(newPort)
+        #newservice = NmapService(servicename=servicename, protocol=protocol, portnumber=portnumber, product=product, extra=extra, version=version, ostype=ostype)
+        #self.services.append(newservice)
+        #return newPort
+
+    def xaddPort(self, name, protocol, portnumber, product, extra, version, ostype):
         #self.addService(service)
         newservice = NmapService(name, protocol, portnumber, product, extra, version, ostype)
         self.services.append(newservice)
@@ -269,7 +283,7 @@ class NmapHost(Base):
         # Add port if function hasn't already exited
         self.ports.append(NmapPort(protocol, portnumber, name, product, extra, version, ostype))
 
-    def addService(self, service):
+    def xaddService(self, service):
         if service not in self.services:
             self.services.append(service)
 
@@ -296,17 +310,19 @@ class NmapPort(Base):
     portid = Column(Integer, primary_key=True)
     portnumber = Column(Integer)
     protocol = Column(String(255))
-    service = Column(String(255))
+    servicename = Column(String(255))
     product = Column(String(255))
     extra = Column(String(255))
     version = Column(String(255))
     ostype = Column(String(255))
+    firstseen = Column(String(255))
+    lastseen = Column(String(255))
     scanid = Column(Integer, ForeignKey('scans.scanid'))
     hostid = Column(Integer, ForeignKey('hosts.hostid'))
-    def __init__(self, protocol, port, service, product, extra, version, ostype):
+    def __init__(self, protocol=None, portnumber=None, servicename=None, product=None, extra=None, version=None, ostype=None):
         self.protocol = protocol
-        self.portnumber = port
-        self.service = service
+        self.portnumber = portnumber
+        self.servicename = servicename
         self.product = product
         self.extra = extra
         self.version = version
