@@ -53,7 +53,7 @@ def main():
 	elif options.xmlpath:
 		idx = 0
 		xmlcount = len(glob.glob(options.xmlpath + '/*.xml'))
-		for xmlfile in glob.glob(options.xmlpath + '/*.xml'):
+		for xmlfile in sorted(glob.glob(options.xmlpath + '/*.xml')):
 			idx += 1
 			scan = nmap.NmapScan(xmlfile)
 			logger.info(f"file:{xmlfile} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")

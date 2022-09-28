@@ -229,7 +229,7 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True, sessionname=None):
 					# logger.debug(f'updatehost {host}')
 					hostid = get_hostid(session, host.ip)
 					host.lastseen = scan.scandate
-					stmt = update(NmapHost).where(NmapHost.hostid == hostid).values(lastseen=host.lastseen)
+					stmt = update(NmapHost).where(NmapHost.hostid == hostid).values(lastseen=host.lastseen, portlist=portlist, servicelist=servicelist)
 					session.execute(stmt)
 					#session.query(NmapHost).filter(NmapHost.hostid == hostid).update({"lastseen": scan.scandate})
 

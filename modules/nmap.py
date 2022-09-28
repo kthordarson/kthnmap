@@ -3,7 +3,7 @@ from sqlalchemy.exc import (ArgumentError, CompileError, DataError, IntegrityErr
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from IPy import IP
-
+import datetime
 import os
 import copy
 import ipaddress
@@ -11,8 +11,18 @@ from loguru import logger
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from modules.constants import PROTOCOLS, PORT_OPT_COMBINED, PORT_OPT_TCP, PORT_OPT_UDP
+
 #from modules import constants
 #from modules import helpers
+
+def sort_xml_list(xml_list):
+    newlist=[]
+    for xmlfile in xml_list:
+        nmap_xml = ET.parse(xmlfile)
+        root = nmap_xml.getroot()
+        scandate = datetime.datetime.fromtimestamp(int(root.attrib['start']))
+        newlist.append({'filename':xmlfile, 'scandate':scandate})
+    return newlist
 
 def sortIpList(ip_list):
     ipl = [(IP(ip).int(), ip) for ip in ip_list]
@@ -119,7 +129,8 @@ class NmapScan(Base):
                             ostype = 'na'
                         # logger.debug(f'host={newhost} port={xPort} servicename={Servicename} product={product} extra={extra} version={version} ostype={ostype}')
                         if Servicename == 'na':
-                            logger.warning(f'host={newhost} port={xPort} servicename={Servicename} product={product} extra={extra} version={version} ostype={ostype}')
+                            pass
+                            # logger.warning(f'host={newhost} port={xPort} servicename={Servicename} product={product} extra={extra} version={version} ostype={ostype}')
                         newhost.addPortService(servicename=Servicename, protocol=Protocol, portnumber=PortNumber, product=product, extra=extra, version=version, ostype=ostype)
                         #self.addService(curService, ip, curPortId, product, extra, version, ostype)
                 self.Hosts[ip] = newhost
