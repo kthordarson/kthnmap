@@ -165,7 +165,11 @@ def get_sessionid(session, sessionname):
 		res = None
 	return res
 
-def to_database(scan=None, xmlfile=None, check=True, sessionname=None):
+def scan_to_database(results=None, sessionname=None):
+	for res in results:
+		logger.info(f'[todb] {res}')
+
+def xmlscan_to_database(scan=None, xmlfile=None, check=True, sessionname=None):
 	#Session = sessionmaker(bind=engine)
 	#session = Session()
 	#metadata = MetaData(engine)

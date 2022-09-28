@@ -44,14 +44,15 @@ class NmapScan(Base):
     #Hosts = Column(String(255))
     #Services = Column(String(255))
     scanargs = Column(String(1024))
-    def __init__(self, xmlFile):
+    def __init__(self, xmlFile=None):
         # Import xml files
         self.Hosts = {}
         self.Services = []
         self.hostcount = 0
         self.servicecount = 0
         self.xmlfilename = xmlFile
-        self.parseNmapXmlFile(xmlFile)
+        if xmlFile:
+            self.parseNmapXmlFile(xmlFile)
 
 
     def __repr__(self):
@@ -243,7 +244,6 @@ class NmapHost(Base):
         self.ports = []
         self.services = []
         self.matched = True # Used for filtering
-        self.filesWithHost = [] # List of nmap files host was found in
         # logger.debug(f'host init scan:{self.scanid} {scanid}')
 
     # def __str__(self):
@@ -269,23 +269,6 @@ class NmapHost(Base):
         #newservice = NmapService(servicename=servicename, protocol=protocol, portnumber=portnumber, product=product, extra=extra, version=version, ostype=ostype)
         #self.services.append(newservice)
         #return newPort
-
-    def xaddPort(self, name, protocol, portnumber, product, extra, version, ostype):
-        #self.addService(service)
-        newservice = NmapService(name, protocol, portnumber, product, extra, version, ostype)
-        self.services.append(newservice)
-        for port in self.ports:
-            if port.portnumber == portnumber and port.protocol == protocol:
-                # Port already exists, check if service is blank and add if possible
-                if(len(port.service.strip()) == 0):
-                    port.service = name
-                return
-        # Add port if function hasn't already exited
-        self.ports.append(NmapPort(protocol, portnumber, name, product, extra, version, ostype))
-
-    def xaddService(self, service):
-        if service not in self.services:
-            self.services.append(service)
 
     def getUniquePortIds(self,protocol='',port_filter=[], service_filter=[]):
         allPortIds = []
