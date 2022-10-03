@@ -32,13 +32,6 @@ def sortIpList(ip_list):
 
 Base = declarative_base()
 
-class NmapSession(Base):
-    __tablename__ = 'sessions'
-    sessionid = Column(Integer, primary_key=True)
-    sessionname = Column(String(255))
-    scanid = Column(Integer, ForeignKey('scans.scanid'))
-    def __init__(self, sessionname):
-        self.sessionname = sessionname
 
 class NmapScan(Base):
     __tablename__ = 'scans'
@@ -49,8 +42,8 @@ class NmapScan(Base):
     scanstart_str = Column(String(255))
     xmlfilename = Column(String(255))
     hostcount = Column(Integer)
+    alivecount = Column(Integer)
     servicecount = Column(Integer)
-    sessionname = Column(String(255))
     #Hosts = Column(String(255))
     #Services = Column(String(255))
     scanargs = Column(String(1024))
@@ -59,6 +52,7 @@ class NmapScan(Base):
         self.Hosts = {}
         self.Services = []
         self.hostcount = 0
+        self.alivecount = 0
         self.servicecount = 0
         self.xmlfilename = xmlFile
         if xmlFile:
@@ -94,9 +88,8 @@ class NmapScan(Base):
                 except:
                     hostname = ip
                 alive = (xHost.find("status").get('state') == 'up')
-                #self.Hosts[ip] = NmapHost(ip, self.scanid)
-                #self.hostcount += 1
-                #curHost = self.Hosts[ip]
+                if alive:
+                    self.alivecount += 1
                 newhost = NmapHost(ipaddress=ip, hostname=hostname, scanid=self.scanid, alive=alive)
                 for xPort in xHost.findall('.//port'):
                     # Only parse open ports

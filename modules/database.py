@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker, Session
 import sqlalchemy
 from loguru import logger
 import datetime
-from .nmap import NmapSession, NmapHost, NmapPort, NmapScan, NmapService
+from .nmap import NmapHost, NmapPort, NmapScan, NmapService
 
 mysql_cmds = {
 'scans' : """
@@ -19,21 +19,10 @@ mysql_cmds = {
 						xmlfilename  varchar(255),
 						scandate varchar(255),
 						scanstart_str varchar(255),
-						sessionname varchar(255),
 						scanargs varchar(2024),
 						hostcount int,
+						alivecount int,
 						servicecount int
-					);
- """,
-'sessions' : """
-					create table if not exists sessions
-					(
-						sessionid int primary key not null auto_increment,
-						sessionname varchar(255),
-						scanid int,
-						key scans_fk (scanid),
-						foreign key(scanid) references scans(scanid)
-
 					);
  """,
  'hosts' : """
@@ -169,7 +158,7 @@ def scan_to_database(results=None, sessionname=None):
 	for res in results:
 		logger.info(f'[todb] {res}')
 
-def xmlscan_to_database(scan=None, xmlfile=None, check=True, sessionname=None):
+def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 	#Session = sessionmaker(bind=engine)
 	#session = Session()
 	#metadata = MetaData(engine)
@@ -181,24 +170,11 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True, sessionname=None):
 			if check_existing_xml(session, xmlfile):
 				logger.warning(f'xmlfile {xmlfile} already in database')
 				return
-		scan.sessionname = sessionname
 		session.add(scan)
 		session.commit()
-		#if get_sessionid(session, sessionname) is None:
-		ns = NmapSession(sessionname=sessionname)
-		ns.scanid = scan.scanid
-		session.add(ns)
-		session.commit()
-#		else:
-#			pass
-			#ns = session.query(NmapSession).filter_by(sessionname=sessionname).first()
-			#ns.scanid = scan.scanid
-			#session.commit()
-			#updatessession
 		hosts = scan.getHosts()
 		hostcount = 0
 		errcount = 0
-		logger.debug(f'Added session to database sessid:{ns.sessionid} scanid:{ns.scanid} hosts:{len(hosts)}')
 		for host in hosts:
 			host.scanid = scan.scanid
 			if len(host.ports) == 0:

@@ -15,7 +15,6 @@ def main():
 	parser = OptionParser(usage="%prog [options] --file xmlfile")
 	parser.add_option("-f","--filename", dest="xmlfilename", help="xmlfilename", action='store', type='string')
 	parser.add_option("-p","--path", dest="xmlpath", help="path to xml files")
-	parser.add_option("-s","--session", dest="sessionname", help="sessionname", default="default")
 	parser.add_option("-d","--drop", dest="droptables", help="drop existing data", action="store", default=False)
 	parser.add_option("-c","--check", dest="check", help="check existing data", action="store", default=True)
 	parser.add_option("-r","--read", dest="readconfig", help="run scan from config", action="store", type='string')
@@ -44,12 +43,12 @@ def main():
 				print(f'scanning {host} {scanconfig}' )
 				res = do_scan(host, scanconfig)
 				results.append(res)
-			scan_to_database(results, options.sessionname)
+			scan_to_database(results)
 
 	elif options.xmlfilename:
 		scan = nmap.NmapScan(options.xmlfilename)
 		logger.info(f"Total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
-		xmlscan_to_database(scan=scan, xmlfile=options.xmlfilename, sessionname=options.sessionname)
+		xmlscan_to_database(scan=scan, xmlfile=options.xmlfilename)
 	elif options.xmlpath:
 		idx = 0
 		xmlcount = len(glob.glob(options.xmlpath + '/*.xml'))
@@ -57,7 +56,7 @@ def main():
 			idx += 1
 			scan = nmap.NmapScan(xmlfile)
 			logger.info(f"file:{xmlfile} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")
-			xmlscan_to_database(scan=scan, xmlfile=xmlfile, sessionname=options.sessionname)
+			xmlscan_to_database(scan=scan, xmlfile=xmlfile)
 
 if __name__ == "__main__":
 	main()
