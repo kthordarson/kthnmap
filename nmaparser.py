@@ -8,6 +8,8 @@ from configparser import ConfigParser
 from modules import nmap
 from modules.database import xmlscan_to_database, get_engine, drop_tables,scan_to_database
 from modules.scanner import do_scan
+from modules.nmap import sort_xml_list
+
 VERSION = "0.1.1"
 RELEASE_DATE = "2022-09-20"
 
@@ -52,11 +54,13 @@ def main():
 	elif options.xmlpath:
 		idx = 0
 		xmlcount = len(glob.glob(options.xmlpath + '/*.xml'))
-		for xmlfile in sorted(glob.glob(options.xmlpath + '/*.xml')):
+		xlist = glob.glob(options.xmlpath + '/*.xml')
+		xmllist = sort_xml_list(xlist)
+		for xmlfile in xmllist:
 			idx += 1
-			scan = nmap.NmapScan(xmlfile)
+			scan = nmap.NmapScan(xmlfile['filename'])
 			logger.info(f"file:{xmlfile} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")
-			xmlscan_to_database(scan=scan, xmlfile=xmlfile)
+			xmlscan_to_database(scan=scan, xmlfile=xmlfile['filename'])
 
 if __name__ == "__main__":
 	main()

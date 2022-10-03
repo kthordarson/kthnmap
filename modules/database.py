@@ -175,10 +175,14 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 		hosts = scan.getHosts()
 		hostcount = 0
 		errcount = 0
+		hostupdatecount = 0
+		portupdatecount = 0
+		noportcount = 0
+		newportcount = 0
 		for host in hosts:
 			host.scanid = scan.scanid
 			if len(host.ports) == 0:
-				pass
+				noportcount += 1
 				#host.openports = 0
 				#host.ports = 0
 				#host.services = 0
@@ -207,6 +211,7 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 					host.lastseen = scan.scandate
 					stmt = update(NmapHost).where(NmapHost.hostid == hostid).values(lastseen=host.lastseen, portlist=portlist, servicelist=servicelist)
 					session.execute(stmt)
+					hostupdatecount += 1
 					#session.query(NmapHost).filter(NmapHost.hostid == hostid).update({"lastseen": scan.scandate})
 
 
@@ -219,12 +224,14 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 						p.lastseen = scan.scandate
 						session.add(p)
 						session.commit()
+						newportcount += 1
 					else:
 						#updateport
 						p.lastseen = scan.scandate
 						#p.hostid = host.hostid
 						stmt = update(NmapPort).where(NmapPort.portnumber == p.portnumber).where(NmapPort.hostid == hostid).values(lastseen=p.lastseen)
 						session.execute(stmt)
+						portupdatecount += 1
 #			ports = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')
 #			host.ports = ports # str([k.portnumber for k in host.ports])
 #			services = str([k for k in host.services]).replace('[','').replace(']','')
@@ -234,4 +241,4 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 		# 	service.scanid = scan.scanid
 		# 	session.add(service)
 		# 	session.commit()
-		logger.debug(f'Added {hostcount} of {len(hosts)} to database errors:{errcount}')
+		logger.debug(f'Added {hostcount} of {len(hosts)} to database errors:{errcount} noport:{noportcount} newports:{newportcount} hostupdates:{hostupdatecount} portupdates:{portupdatecount}')

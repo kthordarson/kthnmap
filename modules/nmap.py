@@ -22,6 +22,7 @@ def sort_xml_list(xml_list):
         root = nmap_xml.getroot()
         scandate = datetime.datetime.fromtimestamp(int(root.attrib['start']))
         newlist.append({'filename':xmlfile, 'scandate':scandate})
+    newlist.sort(key=lambda x: x['scandate'])
     return newlist
 
 def sortIpList(ip_list):
@@ -60,7 +61,7 @@ class NmapScan(Base):
 
 
     def __repr__(self):
-        return f'nmapscan date={self.scanstart_str} hosts={len(self.Hosts)} services={len(self.Services)}'
+        return f'nmapscan date={self.scanstart_str} hosts={len(self.Hosts)} services={len(self.Services)} sc={self.servicecount} ac={self.alivecount} hc={self.hostcount}'
 
     def parseNmapXmlFile(self, nmapXmlFilename):
         count = 0
@@ -88,8 +89,6 @@ class NmapScan(Base):
                 except:
                     hostname = ip
                 alive = (xHost.find("status").get('state') == 'up')
-                if alive:
-                    self.alivecount += 1
                 newhost = NmapHost(ipaddress=ip, hostname=hostname, scanid=self.scanid, alive=alive)
                 for xPort in xHost.findall('.//port'):
                     # Only parse open ports
@@ -128,6 +127,8 @@ class NmapScan(Base):
                         #self.addService(curService, ip, curPortId, product, extra, version, ostype)
                 self.Hosts[ip] = newhost
                 self.hostcount += 1
+                if newhost.servicecount >= 1:
+                    self.alivecount += 1
 
     # Ger or create new service with host/ip/port details
     def addService(self, svcName, ip, port, product, extra, version, ostype):
@@ -247,6 +248,7 @@ class NmapHost(Base):
         self.alive = alive
         self.ports = []
         self.services = []
+        self.servicecount = 0
         self.matched = True # Used for filtering
         # logger.debug(f'host init scan:{self.scanid} {scanid}')
 
@@ -270,6 +272,7 @@ class NmapHost(Base):
     def addPortService(self, servicename, protocol, portnumber,  product, extra, version, ostype):
         newPort = NmapPort(servicename=servicename, protocol=protocol, portnumber=portnumber,  product=product, extra=extra, version=version, ostype=ostype)
         self.ports.append(newPort)
+        self.servicecount += 1
         #newservice = NmapService(servicename=servicename, protocol=protocol, portnumber=portnumber, product=product, extra=extra, version=version, ostype=ostype)
         #self.services.append(newservice)
         #return newPort
