@@ -124,34 +124,46 @@ def get_engine():
 
 def get_hostid(session, ipaddress):
 	sql = f"select hostid from hosts where ip = '{ipaddress}'"
+	res = []
 	try:
 		res = session.execute(sql).fetchone()[0]
 	except:
-		res = None
+		pass
+	if res is None:
+		return []
 	return res
 
 def get_host(session, ipaddress):
 	sql = f"select * from hosts where ip = '{ipaddress}'"
+	res = []
 	try:
 		res = session.execute(sql).fetchone()
 	except:
-		res = None
+		return []
+	if res is None:
+		return []
 	return res
 
-def get_hostport(session, hostid, portnumber):
+def get_hostport(session=None, hostid=None, portnumber=None):
 	sql = f"select * from ports where portnumber = '{portnumber}' and hostid = '{hostid}'"
+	res = []
 	try:
 		res = session.execute(sql).fetchone()
 	except:
-		res = None
-	return res
+		return []
+	if res is None:
+		return []
+	else:
+		return res
 
 def get_sessionid(session, sessionname):
 	sql = f"select sessionid from sessions where sessionname = '{sessionname}'"
 	try:
 		res = session.execute(sql).fetchone()[0]
 	except:
-		res = None
+		return []
+	if res is None:
+		return []
 	return res
 
 def scan_to_database(results=None, sessionname=None):
@@ -162,7 +174,7 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 	#Session = sessionmaker(bind=engine)
 	#session = Session()
 	#metadata = MetaData(engine)
-	logger.debug(f'[todb] scan: {scan} xmlfile: {xmlfile} check: {check}')
+	logger.debug(f'[todb] scan: {scan}')
 	engine = get_engine()
 	with Session(engine) as session:
 		create_tables(session)
@@ -193,7 +205,8 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 				servicelist = str([f'{k.name} {k.portnumber}' for k in host.services]).replace('[','').replace(']','')
 				host.portlist = portlist
 				host.servicelist = servicelist
-				if get_host(session, host.ip) is None:
+				hcheck = len(get_host(session, host.ip))
+				if hcheck == 0:
 					host.firstseen = scan.scandate
 					host.lastseen = scan.scandate
 					session.add(host)
@@ -208,6 +221,7 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 				else:
 					# logger.debug(f'updatehost {host}')
 					hostid = get_hostid(session, host.ip)
+					#hostid = get_hostid(session, host.ip)
 					host.lastseen = scan.scandate
 					stmt = update(NmapHost).where(NmapHost.hostid == hostid).values(lastseen=host.lastseen, portlist=portlist, servicelist=servicelist)
 					session.execute(stmt)
@@ -217,7 +231,8 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 
 				ports = [k for k in host.ports]
 				for p in ports:
-					if get_hostport(session, p.portnumber, hostid) is None:
+					portcheck = get_hostport(session=session, portnumber=p.portnumber, hostid=hostid)
+					if len(portcheck) == 0:
 						p.scanid = host.scanid
 						p.hostid = hostid
 						p.firstseen = scan.scandate
@@ -229,7 +244,18 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 						#updateport
 						p.lastseen = scan.scandate
 						#p.hostid = host.hostid
-						stmt = update(NmapPort).where(NmapPort.portnumber == p.portnumber).where(NmapPort.hostid == hostid).values(lastseen=p.lastseen)
+						if p.product != portcheck.product:
+							logger.warning(f'product changed {p.product} to {portcheck.product}')
+							#if portcheck.product == ''
+						if p.servicename != portcheck.servicename:
+							logger.warning(f'servicename changed {p.servicename} to  {portcheck.servicename}')
+						if p.extra != portcheck.extra:
+							logger.warning(f'extra changed {p.extra} to  {portcheck.extra}')
+						if p.ostype != portcheck.ostype:
+							logger.warning(f'ostype changed {p.ostype} to  {portcheck.ostype}')
+						if p.version != portcheck.version:
+							logger.warning(f'version changed {p.version} to  {portcheck.version}')
+						stmt = update(NmapPort).where(NmapPort.portnumber == p.portnumber).where(NmapPort.hostid == hostid).values(lastseen=p.lastseen, servicename=p.servicename, product=p.product, extra=p.extra, version=p.version, ostype=p.ostype)
 						session.execute(stmt)
 						portupdatecount += 1
 #			ports = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')

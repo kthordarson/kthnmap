@@ -59,7 +59,7 @@ def main():
 		for xmlfile in xmllist:
 			idx += 1
 			scan = nmap.NmapScan(xmlfile['filename'])
-			logger.info(f"file:{xmlfile} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")
+			logger.info(f"file:{xmlfile['filename']} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")
 			xmlscan_to_database(scan=scan, xmlfile=xmlfile['filename'])
 
 if __name__ == "__main__":
