@@ -257,10 +257,10 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 						otemp = [k for k in oldportlist.split(',')]
 						newportlist = ','.join(set([*ptemp, *otemp]))
 						#newportlist = set([k for k in portlist.split(',')]+[m for m in oldportlist.split(',')])
-						logger.info(f'\tplist={portlist}')
-						logger.info(f'\told={oldportlist}')
-						logger.info(f'\tnew={newportlist}')						
-						# logger.warning(f'pdiff={len(portlist)-len(oldportlist)} p={len(portlist)} o={len(oldportlist)} n={len(newportlist)}')
+						#logger.info(f'\tplist={portlist}')
+						#logger.info(f'\told={oldportlist}')
+						#logger.info(f'\tnew={newportlist}')						
+						logger.warning(f'host={host} pdiff={len(portlist)-len(oldportlist)} p={len(portlist)} o={len(oldportlist)} n={len(newportlist)}')
 						portlist = newportlist
 					if len(servicelist)-len(oldservicelist) < 0:
 						logger.warning(f'sdiff={len(servicelist)-len(oldservicelist)} s={len(servicelist)} o={len(oldservicelist)}')
@@ -288,7 +288,11 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 						p.lastseen = scan.scandate
 						#p.hostid = host.hostid
 						if p.product != portcheck.product:
-							logger.warning(f'product changed {p.product} to {portcheck.product}')
+							if portcheck.product in ['na', 'http']:
+								logger.warning(f'host={host}  skipping product change {p.product} to {portcheck.product}')
+							if p.product == 'na':
+								logger.info(f'host={host}  product change {p.product} to {portcheck.product}')
+								p.product = portcheck.product
 							portupdatecount += 1
 							#if portcheck.product == ''
 						if p.servicename != portcheck.servicename:
