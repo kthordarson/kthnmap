@@ -144,6 +144,30 @@ def get_host(session, ipaddress):
 		return []
 	return res
 
+def get_servicelist(session=None, hostid=None):
+	sql = f"select servicelist from hosts where hostid = '{hostid}'"
+	res = []
+	try:
+		res = session.execute(sql).fetchone()[0]
+	except:
+		return []
+	if res is None:
+		return []
+	else:
+		return res
+
+def get_portlist(session=None, hostid=None):
+	sql = f"select portlist from hosts where hostid = '{hostid}'"
+	res = []
+	try:
+		res = session.execute(sql).fetchone()[0]
+	except:
+		return []
+	if res is None:
+		return []
+	else:
+		return res
+
 def get_hostport(session=None, hostid=None, portnumber=None):
 	sql = f"select * from ports where portnumber = '{portnumber}' and hostid = '{hostid}'"
 	res = []
@@ -165,6 +189,9 @@ def get_sessionid(session, sessionname):
 	if res is None:
 		return []
 	return res
+
+def mergeportlist(portlist, oldportlist):
+	return set(portlist + oldportlist)
 
 def scan_to_database(results=None, sessionname=None):
 	for res in results:
@@ -223,6 +250,22 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 					hostid = get_hostid(session, host.ip)
 					#hostid = get_hostid(session, host.ip)
 					host.lastseen = scan.scandate
+					oldportlist = get_portlist(session, hostid)
+					oldservicelist = get_servicelist(session, hostid)
+					if len(portlist)-len(oldportlist) < 0:
+						ptemp = [k for k in portlist.split(',')]
+						otemp = [k for k in oldportlist.split(',')]
+						newportlist = ','.join(set([*ptemp, *otemp]))
+						#newportlist = set([k for k in portlist.split(',')]+[m for m in oldportlist.split(',')])
+						logger.info(f'\tplist={portlist}')
+						logger.info(f'\told={oldportlist}')
+						logger.info(f'\tnew={newportlist}')						
+						# logger.warning(f'pdiff={len(portlist)-len(oldportlist)} p={len(portlist)} o={len(oldportlist)} n={len(newportlist)}')
+						portlist = newportlist
+					if len(servicelist)-len(oldservicelist) < 0:
+						logger.warning(f'sdiff={len(servicelist)-len(oldservicelist)} s={len(servicelist)} o={len(oldservicelist)}')
+						logger.info(f'\tslist={servicelist}')
+						logger.info(f'\told={oldservicelist}')
 					stmt = update(NmapHost).where(NmapHost.hostid == hostid).values(lastseen=host.lastseen, portlist=portlist, servicelist=servicelist)
 					session.execute(stmt)
 					hostupdatecount += 1
@@ -246,18 +289,23 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 						#p.hostid = host.hostid
 						if p.product != portcheck.product:
 							logger.warning(f'product changed {p.product} to {portcheck.product}')
+							portupdatecount += 1
 							#if portcheck.product == ''
 						if p.servicename != portcheck.servicename:
 							logger.warning(f'servicename changed {p.servicename} to  {portcheck.servicename}')
+							portupdatecount += 1
 						if p.extra != portcheck.extra:
 							logger.warning(f'extra changed {p.extra} to  {portcheck.extra}')
+							portupdatecount += 1
 						if p.ostype != portcheck.ostype:
 							logger.warning(f'ostype changed {p.ostype} to  {portcheck.ostype}')
+							portupdatecount += 1
 						if p.version != portcheck.version:
 							logger.warning(f'version changed {p.version} to  {portcheck.version}')
+							portupdatecount += 1
 						stmt = update(NmapPort).where(NmapPort.portnumber == p.portnumber).where(NmapPort.hostid == hostid).values(lastseen=p.lastseen, servicename=p.servicename, product=p.product, extra=p.extra, version=p.version, ostype=p.ostype)
 						session.execute(stmt)
-						portupdatecount += 1
+						
 #			ports = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')
 #			host.ports = ports # str([k.portnumber for k in host.ports])
 #			services = str([k for k in host.services]).replace('[','').replace(']','')
