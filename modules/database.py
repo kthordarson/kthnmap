@@ -33,7 +33,7 @@ mysql_cmds = {
 						ip  varchar(255),
 						hostname varchar(255),
 						openports int,
-						portlist varchar(255),
+						portlist varchar(512),
 						servicelist varchar(512),
 						alive bool,
 						firstseen varchar(255),
@@ -227,7 +227,7 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 				#host.services = 0
 			else:
 				host.openports = len(host.ports)
-				portlist = str([f'{k.servicename} {k.portnumber}' for k in host.ports]).replace('[','').replace(']','')
+				portlist = str([f'{k.portnumber}' for k in host.ports]).replace('[','').replace(']','')
 				# servicelist = str([k for k in host.services]).replace('[','').replace(']','')
 				servicelist = str([f'{k.name} {k.portnumber}' for k in host.services]).replace('[','').replace(']','')
 				host.portlist = portlist

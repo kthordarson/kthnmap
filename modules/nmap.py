@@ -18,7 +18,11 @@ from modules.constants import PROTOCOLS, PORT_OPT_COMBINED, PORT_OPT_TCP, PORT_O
 def sort_xml_list(xml_list):
     newlist=[]
     for xmlfile in xml_list:
-        nmap_xml = ET.parse(xmlfile)
+        try:
+            nmap_xml = ET.parse(xmlfile)
+        except ET.ParseError as e:
+            logger.error(f'Error parsing {xmlfile} {e}')
+            break
         root = nmap_xml.getroot()
         scandate = datetime.datetime.fromtimestamp(int(root.attrib['start']))
         newlist.append({'filename':xmlfile, 'scandate':scandate})
@@ -239,7 +243,7 @@ class NmapHost(Base):
     lastseen = Column(String(255))
     scanid = Column(Integer, ForeignKey('scans.scanid'))
     openports = Column(Integer)
-    portlist = Column(String(255))
+    portlist = Column(String(512))
     servicelist = Column(String(255))
     def __init__(self, ipaddress=None, hostname=None, scanid=None, alive=None) :
         self.scanid = scanid
