@@ -211,65 +211,66 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 				return
 		session.add(scan)
 		session.commit()
-		hosts = scan.getHosts()
+		# hosts = scan.getHosts()
 		hostcount = 0
 		errcount = 0
 		hostupdatecount = 0
 		portupdatecount = 0
 		noportcount = 0
 		newportcount = 0
-		for host in hosts:
+		for host in scan.getHosts():
 			host.scanid = scan.scanid
 			if len(host.ports) == 0:
 				noportcount += 1
 				#host.openports = 0
 				#host.ports = 0
 				#host.services = 0
-			else:
-				host.openports = len(host.ports)
-				portlist = str([f'{k.portnumber}' for k in host.ports]).replace('[','').replace(']','')
-				# servicelist = str([k for k in host.services]).replace('[','').replace(']','')
-				servicelist = str([f'{k.name} {k.portnumber}' for k in host.services]).replace('[','').replace(']','')
-				host.portlist = portlist
-				host.servicelist = servicelist
-				hcheck = len(get_host(session, host.ip))
-				if hcheck == 0:
-					host.firstseen = scan.scandate
-					host.lastseen = scan.scandate
-					session.add(host)
-					try:
-						session.commit()
-						hostid = get_hostid(session, host.ip)
-						hostcount += 1
-					except (ProgrammingError, OperationalError, DataError) as e:
-						logger.error(f'[todb] err:{e} host:{host}')
-						session.rollback()
-						errcount += 1
-				else:
-					# logger.debug(f'updatehost {host}')
+			# else:
+			portlist = str([f'{k.portnumber}' for k in host.ports]).replace('[','').replace(']','')
+			host.openports = len(portlist.split(','))
+			#host.openports = len(host.ports)
+			# servicelist = str([k for k in host.services]).replace('[','').replace(']','')
+			servicelist = str([f'{k.name} {k.portnumber}' for k in host.services]).replace('[','').replace(']','')
+			host.portlist = portlist
+			host.servicelist = servicelist
+			hcheck = len(get_host(session, host.ip))
+			if hcheck == 0:
+				host.firstseen = scan.scandate
+				host.lastseen = scan.scandate
+				session.add(host)
+				try:
+					session.commit()
 					hostid = get_hostid(session, host.ip)
-					#hostid = get_hostid(session, host.ip)
-					host.lastseen = scan.scandate
-					oldportlist = get_portlist(session, hostid)
-					oldservicelist = get_servicelist(session, hostid)
-					if len(portlist)-len(oldportlist) < 0:
-						ptemp = [k for k in portlist.split(',')]
-						otemp = [k for k in oldportlist.split(',')]
-						newportlist = ','.join(set([*ptemp, *otemp]))
-						#newportlist = set([k for k in portlist.split(',')]+[m for m in oldportlist.split(',')])
-						#logger.info(f'\tplist={portlist}')
-						#logger.info(f'\told={oldportlist}')
-						#logger.info(f'\tnew={newportlist}')						
-						logger.warning(f'host={host} pdiff={len(portlist)-len(oldportlist)} p={len(portlist)} o={len(oldportlist)} n={len(newportlist)}')
-						portlist = newportlist
-					if len(servicelist)-len(oldservicelist) < 0:
-						logger.warning(f'sdiff={len(servicelist)-len(oldservicelist)} s={len(servicelist)} o={len(oldservicelist)}')
-						logger.info(f'\tslist={servicelist}')
-						logger.info(f'\told={oldservicelist}')
-					stmt = update(NmapHost).where(NmapHost.hostid == hostid).values(lastseen=host.lastseen, portlist=portlist, servicelist=servicelist)
-					session.execute(stmt)
-					hostupdatecount += 1
-					#session.query(NmapHost).filter(NmapHost.hostid == hostid).update({"lastseen": scan.scandate})
+					hostcount += 1
+				except (ProgrammingError, OperationalError, DataError) as e:
+					logger.error(f'[todb] err:{e} host:{host}')
+					session.rollback()
+					errcount += 1
+			else:
+				# logger.debug(f'updatehost {host}')
+				hostid = get_hostid(session, host.ip)
+				#hostid = get_hostid(session, host.ip)
+				host.lastseen = scan.scandate
+				oldportlist = get_portlist(session, hostid)
+				oldservicelist = get_servicelist(session, hostid)
+				if len(portlist)-len(oldportlist) < 0:
+					ptemp = [k for k in portlist.split(',')]
+					otemp = [k for k in oldportlist.split(',')]
+					newportlist = ','.join(set([*ptemp, *otemp]))
+					#newportlist = set([k for k in portlist.split(',')]+[m for m in oldportlist.split(',')])
+					#logger.info(f'\tplist={portlist}')
+					#logger.info(f'\told={oldportlist}')
+					#logger.info(f'\tnew={newportlist}')						
+					logger.warning(f'host={host} pdiff={len(portlist)-len(oldportlist)} p={len(portlist)} o={len(oldportlist)} n={len(newportlist)}')
+					portlist = newportlist
+				if len(servicelist)-len(oldservicelist) < 0:
+					logger.warning(f'sdiff={len(servicelist)-len(oldservicelist)} s={len(servicelist)} o={len(oldservicelist)}')
+					logger.info(f'\tslist={servicelist}')
+					logger.info(f'\told={oldservicelist}')
+				stmt = update(NmapHost).where(NmapHost.hostid == hostid).values(lastseen=host.lastseen, portlist=portlist, servicelist=servicelist)
+				session.execute(stmt)
+				hostupdatecount += 1
+				#session.query(NmapHost).filter(NmapHost.hostid == hostid).update({"lastseen": scan.scandate})
 
 
 				ports = [k for k in host.ports]
@@ -319,4 +320,4 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 		# 	service.scanid = scan.scanid
 		# 	session.add(service)
 		# 	session.commit()
-		logger.debug(f'Added {hostcount} of {len(hosts)} to database errors:{errcount} noport:{noportcount} newports:{newportcount} hostupdates:{hostupdatecount} portupdates:{portupdatecount}')
+		# logger.debug(f'Added {hostcount} of {len(scan.getHosts())} to database errors:{errcount} noport:{noportcount} newports:{newportcount} hostupdates:{hostupdatecount} portupdates:{portupdatecount}')

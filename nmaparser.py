@@ -27,27 +27,28 @@ def main():
 	if options.droptables:
 		drop_tables()
 	# Parse nmap file
-	elif options.readconfig:
+	if options.readconfig:
 		# todo read config file, run nmap scan, parse results, pass results to parser and send to database
-		if not os.path.exists(options.readconfig):
-			logger.error(f"Config file {options.readconfig} does not exist")
-			return
-		else:
-			logger.info(f'Running scan from config file {options.readconfig}')
-			config = ConfigParser()
-			config.read(options.readconfig)
-			hosts = [k for k in config.get('targets', 'hosts').split(',')]
-			ports = config.get('targets', 'ports')
-			opts = config.get('targets', 'options')
-			scanconfig=f"{opts} -p{ports}"
-			results = []
-			for host in hosts:
-				print(f'scanning {host} {scanconfig}' )
-				res = do_scan(host, scanconfig)
-				results.append(res)
-			scan_to_database(results)
+		pass
+		# if not os.path.exists(options.readconfig):
+		# 	logger.error(f"Config file {options.readconfig} does not exist")
+		# 	return
+		# else:
+		# 	logger.info(f'Running scan from config file {options.readconfig}')
+		# 	config = ConfigParser()
+		# 	config.read(options.readconfig)
+		# 	hosts = [k for k in config.get('targets', 'hosts').split(',')]
+		# 	ports = config.get('targets', 'ports')
+		# 	opts = config.get('targets', 'options')
+		# 	scanconfig=f"{opts} -p{ports}"
+		# 	results = []
+		# 	for host in hosts:
+		# 		print(f'scanning {host} {scanconfig}' )
+		# 		res = do_scan(host, scanconfig)
+		# 		results.append(res)
+		# 	scan_to_database(results)
 
-	elif options.xmlfilename:
+	if options.xmlfilename:
 		scan = nmap.NmapScan(options.xmlfilename)
 		logger.info(f"Total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
 		xmlscan_to_database(scan=scan, xmlfile=options.xmlfilename)
