@@ -2,7 +2,7 @@ from os import getenv
 import re
 from inspect import isclass
 from dataclasses import dataclass, fields, field, is_dataclass
-from sqlalchemy import create_engine, MetaData, Column, Integer, update
+from sqlalchemy import create_engine, MetaData, Column, Integer, update, text
 from sqlalchemy.exc import (ArgumentError, CompileError, DataError, IntegrityError, OperationalError, ProgrammingError)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -12,7 +12,7 @@ import datetime
 from .nmap import NmapHost, NmapPort, NmapScan, NmapService
 
 mysql_cmds = {
-'scans' : """
+'scans' : text("""
 					create table if not exists scans
 					(
 						scanid int primary key not null auto_increment,
@@ -24,8 +24,8 @@ mysql_cmds = {
 						alivecount int,
 						servicecount int
 					);
- """,
- 'hosts' : """
+ """),
+ 'hosts' : text("""
 					create table if not exists hosts
 					(
 						hostid int primary key not null auto_increment,
@@ -41,8 +41,8 @@ mysql_cmds = {
 						key scans_fk (scanid),
 						foreign key(scanid) references scans(scanid)
 					);
- """,
- 'ports' : """
+ """),
+ 'ports' : text("""
 					create table if not exists ports
 					(
 						portid int primary key not null auto_increment,
@@ -62,7 +62,7 @@ mysql_cmds = {
 						foreign key(scanid) references scans(scanid),
 						foreign key(hostid) references hosts(hostid)
 					);
- """}
+ """)}
 #  ,
 #   'services' : """
 # 					create table if not exists services
@@ -107,7 +107,7 @@ def create_tables(session):
 	#session.commit()
 
 def check_existing_xml(session, xmlfile):
-	sql = f"select * from scans where xmlfilename = '{xmlfile}'"
+	sql = text(f"select * from scans where xmlfilename = '{xmlfile}'")
 	res = session.execute(sql).fetchall()
 	if len(res) == 0:
 		return False
@@ -260,7 +260,7 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 					#newportlist = set([k for k in portlist.split(',')]+[m for m in oldportlist.split(',')])
 					#logger.info(f'\tplist={portlist}')
 					#logger.info(f'\told={oldportlist}')
-					#logger.info(f'\tnew={newportlist}')						
+					#logger.info(f'\tnew={newportlist}')
 					logger.warning(f'host={host} pdiff={len(portlist)-len(oldportlist)} p={len(portlist)} o={len(oldportlist)} n={len(newportlist)}')
 					portlist = newportlist
 				if len(servicelist)-len(oldservicelist) < 0:
@@ -310,7 +310,7 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 							portupdatecount += 1
 						stmt = update(NmapPort).where(NmapPort.portnumber == p.portnumber).where(NmapPort.hostid == hostid).values(lastseen=p.lastseen, servicename=p.servicename, product=p.product, extra=p.extra, version=p.version, ostype=p.ostype)
 						session.execute(stmt)
-						
+
 #			ports = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')
 #			host.ports = ports # str([k.portnumber for k in host.ports])
 #			services = str([k for k in host.services]).replace('[','').replace(']','')
