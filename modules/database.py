@@ -206,9 +206,12 @@ def xmlscan_to_database(scan=None, xmlfile=None, check=True):
 	with Session(engine) as session:
 		create_tables(session)
 		if check:
-			if check_existing_xml(session, xmlfile):
-				logger.warning(f'xmlfile {xmlfile} already in database')
-				return
+			try:
+				if check_existing_xml(session, xmlfile):
+					logger.warning(f'xmlfile {xmlfile} already in database')
+					return
+			except ProgrammingError as e:
+				logger.error(f'ProgrammingError {e} scan={scan} xmlfile={xmlfile}')
 		session.add(scan)
 		session.commit()
 		# hosts = scan.getHosts()
