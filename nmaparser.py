@@ -7,7 +7,6 @@ from optparse import OptionParser
 from configparser import ConfigParser
 from sqlalchemy.orm import (DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session)
 from modules import nmap
-from modules.scanner import do_scan
 from modules.nmap import sort_xml_list, db_init, xmlscan_to_database, get_engine, drop_tables,scan_to_database
 from subprocess import Popen, PIPE
 from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor, as_completed)
