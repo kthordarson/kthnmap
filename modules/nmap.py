@@ -3,7 +3,7 @@ from sqlalchemy.exc import (ArgumentError, CompileError, DataError, IntegrityErr
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from IPy import IP
-import datetime
+from datetime import datetime
 import os
 import copy
 import ipaddress
@@ -22,9 +22,9 @@ def sort_xml_list(xml_list):
             nmap_xml = ET.parse(xmlfile)
         except ET.ParseError as e:
             logger.error(f'Error parsing {xmlfile} {e}')
-            break
+            continue
         root = nmap_xml.getroot()
-        scandate = datetime.datetime.fromtimestamp(int(root.attrib['start']))
+        scandate = datetime.fromtimestamp(int(root.attrib['start']))
         newlist.append({'filename':xmlfile, 'scandate':scandate})
     newlist.sort(key=lambda x: x['scandate'])
     return newlist

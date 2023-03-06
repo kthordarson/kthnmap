@@ -23,7 +23,7 @@ def exec_nmap(addr, ports):
 	# xmlout = f'scan-{addr}-{datetime.now()}.xml'
 	portlist = ''.join([k for k in ports])
 	xmlout = f'scan-{addr}-{datetime.now()}.xml'.replace(':','').replace(' ','').replace('/','-')
-	cmdstr = ['nmap', addr, '-oX', xmlout, '-sV', '-p', portlist]
+	cmdstr = ['/usr/local/bin/nmap',  addr, '-oX', xmlout, '-sV', '-p', portlist] # '--unprivileged',
 	out = Popen(cmdstr, stdout=PIPE, stderr=None).communicate()[0]
 	res = out.decode('utf-8')
 	# logger.info(f'[nmap] {addr} {len(res)} {xmlout} ')
@@ -41,7 +41,7 @@ def run_nmap():
 	with ThreadPoolExecutor(MAX_WORKERS) as executor:
 		#futures = [executor.submit(exec_nmap, addr, '-sV -oX -') for addr in addr_list]
 		futures = [executor.submit(exec_nmap, addr, ports) for addr in addr_list]
-		logger.debug(f'[+] {len(futures)} nmap scans started')
+		logger.debug(f'[+] {len(futures)} nmap scans started addr={len(addr_list)} portlist={len(ports)}')
 		for future in as_completed(futures):
 			xmlfile = future.result()
 			scan = nmap.NmapScan(xmlfile)
