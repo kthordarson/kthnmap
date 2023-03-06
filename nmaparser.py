@@ -8,6 +8,7 @@ from configparser import ConfigParser
 from sqlalchemy.orm import (DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session)
 from modules import nmap
 from modules.nmap import sort_xml_list, db_init, xmlscan_to_database, get_engine, drop_tables,scan_to_database
+from modules.nmap import NmapHost, NmapPort, NmapScan, NmapService
 from subprocess import Popen, PIPE
 from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor, as_completed)
 from multiprocessing import cpu_count
