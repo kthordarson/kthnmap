@@ -1,5 +1,5 @@
 *.db
-*.journal
+*journal
 *.temp
 *.tmp
 *.txt
