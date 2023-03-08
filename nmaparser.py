@@ -5,14 +5,15 @@ import os, glob, sys, re, subprocess
 import xml.etree.ElementTree as ET
 from optparse import OptionParser
 from configparser import ConfigParser
+from sqlalchemy import Engine
 from sqlalchemy.orm import (DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session)
-from modules import nmap
-from modules.nmap import sort_xml_list, db_init, xmlscan_to_database, get_engine, drop_tables,scan_to_database
-from modules.nmap import NmapHost, NmapPort, NmapScan, NmapService
 from subprocess import Popen, PIPE
 from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor, as_completed)
+from sqlalchemy.exc import (ArgumentError, CompileError, DataError, IntegrityError, OperationalError, ProgrammingError)
 from multiprocessing import cpu_count
 from datetime import datetime
+from modules.database import get_engine
+from modules.nmap import Scan, Host, Ports, XMLFile, db_init
 MAX_WORKERS = cpu_count()
 VERSION = "0.1.2"
 RELEASE_DATE = "2023-03-03"
@@ -23,30 +24,52 @@ def exec_nmap(addr, ports):
 	# xmlout = f'scan-{addr}-{datetime.now()}.xml'
 	portlist = ''.join([k for k in ports])
 	xmlout = f'scan-{addr}-{datetime.now()}.xml'.replace(':','').replace(' ','').replace('/','-')
+	# cmdstr = ['/usr/local/bin/nmap',  addr, '-oX', xmlout, '-sV', '-p', portlist] # '--unprivileged',
 	cmdstr = ['/usr/local/bin/nmap',  addr, '-oX', xmlout, '-sV', '-p', portlist] # '--unprivileged',
-	out = Popen(cmdstr, stdout=PIPE, stderr=None).communicate()[0]
+	out, err = Popen(cmdstr, stdout=PIPE, stderr=PIPE).communicate()
 	res = out.decode('utf-8')
-	# logger.info(f'[nmap] {addr} {len(res)} {xmlout} ')
+	logger.info(f'[nmapres] addr={addr} res={len(res)} stdout/err={len(out)}/{len(err)} filename={xmlout} cmd={cmdstr}')
 	return xmlout
 
-def run_nmap():
-	address_file = 'iplist.txt'
-	portlist_file = 'portlist.txt'
+def db_scan(scan, session):
+	pass
+
+
+def run_nmap(session):
+	address_file = 'iplist2.txt'
+	portlist_file = 'portlist2.txt'
 	with open(address_file, 'r') as f:
 		addr_ = f.readlines()
 	addr_list = [k.strip() for k in addr_]
 	with open(portlist_file, 'r') as f:
 		ports = f.readlines()
 	nmapres = []
-	with ThreadPoolExecutor(MAX_WORKERS) as executor:
+	futures = []
+	with ProcessPoolExecutor(MAX_WORKERS) as executor:
 		#futures = [executor.submit(exec_nmap, addr, '-sV -oX -') for addr in addr_list]
-		futures = [executor.submit(exec_nmap, addr, ports) for addr in addr_list]
-		logger.debug(f'[+] {len(futures)} nmap scans started addr={len(addr_list)} portlist={len(ports)}')
+		for addr in addr_list:
+			nmap_task = executor.submit(exec_nmap, addr, ports)
+			futures.append(nmap_task)
+			logger.debug(f'[+] tasks={len(futures)} nmap scans started addr={addr}')
+		#futures = [executor.submit(exec_nmap, addr, ports) for addr in addr_list]
+
 		for future in as_completed(futures):
 			xmlfile = future.result()
-			scan = nmap.NmapScan(xmlfile)
-			logger.info(f'scan {scan} complete xmlfile={xmlfile} sending to db')
-			xmlscan_to_database(scan=scan, xmlfile=xmlfile)
+			try:
+				nmap_xml = XMLFile(xmlfile)
+			except AttributeError as e:
+				logger.error(f'[!] xmlfile={xmlfile} error={e}')
+				continue
+			session.add(nmap_xml)
+			session.commit()
+			scan = Scan(nmap_xml)
+			session.add(scan)
+			session.commit()
+			hosts = nmap_xml.get_hosts()
+			logger.info(f'scan {scan} complete xmlfile={xmlfile} sending {len(hosts)} hosts to db')
+			for host in hosts:
+				newhost = Host(host)
+
 	return nmapres
 
 
@@ -66,7 +89,7 @@ def main():
 	db_init(engine)
 	if options.run_nmap:
 		print('running nmap')
-		n = run_nmap()
+		n = run_nmap(session)
 	if options.xmlfilename and options.xmlpath:
 		parser.error("Please specify either a filename or a path, not both")
 		return
@@ -78,19 +101,54 @@ def main():
 		# todo read config file, run nmap scan, parse results, pass results to parser and send to database
 		pass
 	if options.xmlfilename:
-		scan = nmap.NmapScan(options.xmlfilename)
-		logger.info(f"Total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
-		xmlscan_to_database(scan=scan, xmlfile=options.xmlfilename, session=session)
+		nmapxml = XMLFile(options.xmlfilename)
+		logger.info(f'[xml] {options.xmlfilename} {nmapxml}')
+		session.add(nmapxml)
+		session.commit()
+		#scan = nmap.NmapScan(options.xmlfilename)
+		#logger.info(f"Total hosts {len(scan.Hosts)} date:{scan.scanstart_str}")
+		#xmlscan_to_database(scan=scan, xmlfile=options.xmlfilename, session=session)
 	elif options.xmlpath:
 		idx = 0
-		xmlcount = len(glob.glob(options.xmlpath + '/*.xml'))
-		xlist = glob.glob(options.xmlpath + '/*.xml')
-		xmllist = sort_xml_list(xlist)
+		xmllist_ = glob.glob(options.xmlpath + '/*.xml')
+		dbfiles = [os.path.basename(k.xmlfile) for k in session.query(XMLFile).all()]
+		xmllist = [k for k in xmllist_ if os.path.basename(k) not in dbfiles]
+		logger.debug(f'[xml] xml:{len(xmllist_)} db:{len(dbfiles)} new:{len(xmllist)}')
+		newxmls = []
 		for xmlfile in xmllist:
 			idx += 1
-			scan = nmap.NmapScan(xmlfile['filename'])
-			logger.info(f"file:{xmlfile['filename'].split('/')[-1]} {idx}/{xmlcount} {xmlcount-idx} total hosts {len(scan.Hosts)} date:{scan.scanstart_str} ")
-			xmlscan_to_database(scan=scan, xmlfile=xmlfile['filename'], session=session)
+			nmapxml = XMLFile(xmlfile)
+			newxmls.append(nmapxml)
+			# logger.debug(f'[xml] {idx} {xmlfile}')
+			session.add(nmapxml)
+			try:
+				session.commit()
+			except (IntegrityError, OperationalError) as e:
+				# logger.error(f'error={e}')
+				session.rollback()
+				continue
+		#db_xmlfiles = session.query(XMLFile).all()
+		for xmlfile in newxmls:
+			idx += 1
+			try:
+				scan = Scan(xmlfile.id, datetime.now())
+				# logger.info(f'[s] {idx} {scan}')
+			except TypeError as e:
+				logger.error(f'[!] xmlfile={xmlfile} error={e}')
+				continue
+			if scan.valid:
+				session.add(scan)
+				session.commit()
+		for xmlfile in newxmls: #session.query(XMLFile).all():
+			h = session.query(XMLFile).filter(XMLFile.xmlfile == xmlfile.xmlfile).first()
+			dbhosts = [k.ip_address for k in session.query(Host).all()]
+			xmlfile_hosts = [k.ip_address for k in h.get_hosts() if k.ip_address not in dbhosts]
+			hosts = [k for k in h.get_hosts() if k.ip_address in xmlfile_hosts]
+			# logger.info(f'xmlfile {xmlfile} sending {len(hosts)} hosts to db')
+			for host in hosts:
+				session.add(host)
+			session.commit()
+			#xmlscan_to_database(scan=scan, xmlfile=xmlfile['filename'], session=session)
 
 if __name__ == "__main__":
 	main()
