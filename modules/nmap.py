@@ -41,6 +41,16 @@ class XMLFile(Base):
 	def __repr__(self):
 		return f'<XMLFile {self.xmlfile}> '
 
+	def get_ports(self):
+		# get open ports and services from xlmfile
+		# returns a list of dicts with portnumber and service info
+		ports = []
+		if self.valid:
+			ports_ = self.root.findall('.//port')
+			# [{'idx':idx,'tag':k.tag,'attrib':k.attrib}  for idx,k in enumerate(root.findall('./host//*')) if k.tag =='port']
+			# [{'idx':idx,'tag':k.tag,'attrib':k.attrib, 'service':[k.attrib for k in k.findall('service')]}  for idx,k in enumerate(root.findall('./host//*')) if k.tag =='port']
+		return ports
+
 	def get_hosts(self):
 		hosts = []
 		if self.valid:
@@ -50,22 +60,25 @@ class XMLFile(Base):
 			self.scanargs = self.root.attrib['args']
 			hosts_ = self.root.findall('.//host')
 			for h in hosts_:
+				# [(k.tag, k.attrib) for k in host]
+				# [k for k in host.iter()]
+				# [(k.tag, k.attrib) for k in host.iter()]
+				# hostinfo=[{'tag':k.tag, 'attrib':k.attrib} for k in host.iter()]
 				starttime = h.get('starttime')
 				endtime = h.get('endtime')
 				ip_address = h.find("address[@addrtype='ipv4']").get('addr')
-				macaddr_ = h.find("address[@addrtype='mac']") or 'unknown'
-				if not macaddr_:
-					macaddr = 'unknown'
-				else:
-					macaddr = macaddr_#.get('addr') or 'unknown'
 				if h.find("address[@addrtype='mac']"):
-					vendor = h.find("address[@addrtype='mac']").get('vendor') or 'unknown'
+					vendor = h.find("address[@addrtype='mac']").get('vendor')
+					macaddr = h.find("address[@addrtype='mac']").get('addr')
 				else:
 					vendor = 'unknown'
+					macaddr = 'unknown'
 				if h.find('.//hostname'):
 					hostname = h.find('.//hostname') or 'unknown'
 				else:
 					hostname = f'{ip_address}-unknown'
+				# get open ports and services for host
+				# [k.attrib for k in host.findall('./ports//port//')]
 				host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime)
 				hosts.append(host)
 			#ip_addresses = [k.find("address[@addrtype='ipv4']").get('addr') for k in hosts_]
