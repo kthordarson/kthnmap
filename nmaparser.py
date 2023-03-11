@@ -13,7 +13,7 @@ from sqlalchemy.exc import (ArgumentError, CompileError, DataError, IntegrityErr
 from multiprocessing import cpu_count
 from datetime import datetime
 from modules.database import get_engine
-from modules.nmap import Scan, Host, Ports, XMLFile, db_init
+from modules.nmap import Scan, Host, Port, XMLFile, db_init
 from libnmap.parser import NmapParser
 MAX_WORKERS = cpu_count()
 VERSION = "0.1.2"
@@ -83,7 +83,7 @@ def scan_path(xmllist:list, session:sessionmaker):
 	#new_xmlfiles = list(set(xmllist).symmetric_difference(set(db_xmlfilenames)))
 	new_xmlfiles = [k for k in xmllist if k not in [x.xml_filename for x in session.query(XMLFile).all()]]
 	if len(new_xmlfiles) == 0 :
-		logger.info(f'[SP] no new xml files to scan....')		
+		logger.info(f'[SP] no new xml files to scan....')
 	else: # len(new_xmlfiles) > 0:
 		logger.debug(f'[SP] db_xmlfiles={len(db_xmlfiles)} xmlpath found {len(xmllist)} files, new xml files = {len(new_xmlfiles)}')
 		for xmlf in new_xmlfiles:
@@ -92,37 +92,50 @@ def scan_path(xmllist:list, session:sessionmaker):
 			session.commit()
 			scan = Scan(db_xml.file_id, datetime.now())
 			session.add(scan)
-			session.commit()			
+			session.commit()
 			send_hosts_to_db(db_xml, scan, session)
 
 def send_hosts_to_db(db_xml:XMLFile, scan:Scan, session:sessionmaker):
 	# logger.info(f'[sp] {db_xml} returned {len(xml_hosts)} hosts from {xmlf}')
+	t0 = datetime.now()
+	nh_count = 0
+	r_count = 0
 	xml_hosts = db_xml.get_hosts(scan.scan_id)
 	if len(xml_hosts) == 0:
 		logger.warning(f'[sh] no xml_hosts from db_xml:{db_xml}')
 	else:
 		db_hosts = session.query(Host).all()
-		_ = [k.refresh_x(db_xml.file_id, scan.scan_id) for k in db_hosts]		
+		#_ = [k.refresh_x(db_xml.file_id, scan.scan_id) for k in db_hosts]
 		xml_iplist = [k.ip_address for k in xml_hosts]
 		db_iplist = [k.ip_address for k in db_hosts]
-		ipaddr_list = list(set(xml_iplist).symmetric_difference(set(db_iplist)))
+		#ipaddr_list = list(set(xml_iplist).symmetric_difference(set(db_iplist)))
 		#new_xml_hosts = [k for k in xml_hosts if k.ip_address not in ipaddr_list]
-		new_xml_hosts = set(xml_iplist) - set(db_iplist)			
-		if len(new_xml_hosts)>0:
-			logger.info(f'[sh] {db_xml} xmlh={len(xml_hosts)} dbh={len(db_hosts)} ip={len(ipaddr_list)} nxh={len(new_xml_hosts)}')
-			nh_count = 0
-			for xhost in new_xml_hosts:
-				newhost = [k for k in xml_hosts if k.ip_address == xhost][0]
-				# logger.info(f'[SP] x={xhost} nh={newhost} file={xmlf} xml_hosts={len(xml_hosts)} db_hosts={len(db_hosts)} ipaddr_list={len(ipaddr_list)} new_xml_hosts={len(new_xml_hosts)}')
-				session.add(newhost)
-				session.commit()
+		new_xml_hosts = set(xml_iplist) - set(db_iplist)
+		logger.info(f'[sh] t:{(datetime.now()-t0).total_seconds()} {db_xml} xmlh={len(xml_hosts)} dbh={len(db_hosts)} nxh={len(new_xml_hosts)}')
+		for xhost in xml_hosts:
+			#newhost = [k for k in xml_hosts if k.ip_address == xhost][0]
+			# logger.info(f'[SP] x={xhost} nh={newhost} file={xmlf} xml_hosts={len(xml_hosts)} db_hosts={len(db_hosts)} ipaddr_list={len(ipaddr_list)} new_xml_hosts={len(new_xml_hosts)}')
+			if xhost.ip_address in [k.ip_address for k in db_hosts]:
+				xhost.refresh_x(db_xml.file_id, scan.scan_id)
+				r_count += 1
+			else:
+				session.add(xhost)
 				nh_count += 1
 			#db_hosts = session.query(Host).all()
-			logger.debug(f'[sh] xml_hosts={len(xml_hosts)} db_hosts={len(db_hosts)} nhc={nh_count}')
-		else:
-			logger.warning(f'[sh] empty new_xml_hosts:{new_xml_hosts} db_xml:{db_xml}')
-		db_hosts = session.query(Host).all()
-		logger.info(f'[sh] sending done db_hosts={len(db_hosts)}')
+			#logger.debug(f'[sh] xml_hosts={len(xml_hosts)} db_hosts={len(db_hosts)} nhc={nh_count}')
+		db_xml.process_time = (datetime.now()-t0).total_seconds()
+		session.commit()
+		db_hosts_count = session.query(Host).count()
+		logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} sending done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count}')
+		for host in session.query(Host).all():
+			hp = db_xml.get_host_ports(host.ip_address)
+			for port in hp:
+				pname = port.get('name')
+				prod = port.get('product')
+				proto = port.get('protocol')
+				new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
+				session.add(new_port)
+		session.commit()
 
 
 def scan_filex(xmlfilename:str, session:sessionmaker):
@@ -132,26 +145,22 @@ def scan_filex(xmlfilename:str, session:sessionmaker):
 	return nmapxml, scan
 
 def scan_xml_file(xmlfilename, session):
-	db_xmlfiles = session.query(XMLFile).all()
-	if xmlfilename in [k.xml_filename for k in db_xmlfiles]:
-		logger.warning(f'[sxf] skipping {xmlfilename} already in db')
-	else:
-		xml_file = XMLFile(xmlfilename)
-		session.add(xml_file)
-		try:
-			session.commit()
-		except ProgrammingError as e:
-			logger.error(f'[sxf] {e}\n\tDuring commit xml_file = {xml_file} {type(xml_file)}')
-			logger.warning(f'xmlfilename={xmlfilename} {type(xmlfilename)}')
-			session.rollback()
-			return None
-		logger.info(f'[sxf] new xmlfile:{xml_file}')
-		scan = Scan(xml_file.file_id, datetime.now())
-		session.add(scan)
+	xml_file = XMLFile(xmlfilename)
+	session.add(xml_file)
+	try:
 		session.commit()
-		hosts = xml_file.get_hosts(scan.scan_id)
-		logger.debug(f'[sxf] nmap_xml_id={xml_file.file_id} {xml_file.scandate} scan_id={scan.scan_id} hosts={len(hosts)} ') # dbhosts={session.query(Host).count()}')
-		send_hosts_to_db(xml_file, scan, session)
+	except ProgrammingError as e:
+		logger.error(f'[sxf] {e}\n\tDuring commit xml_file = {xml_file} {type(xml_file)}')
+		logger.warning(f'xmlfilename={xmlfilename} {type(xmlfilename)}')
+		session.rollback()
+		return None
+	logger.info(f'[sxf] new xmlfile:{xml_file}')
+	scan = Scan(xml_file.file_id, datetime.now())
+	session.add(scan)
+	session.commit()
+	hosts = xml_file.get_hosts(scan.scan_id)
+	logger.debug(f'[sxf] nmap_xml_id={xml_file.file_id} {xml_file.scandate} scan_id={scan.scan_id} hosts={len(hosts)} ') # dbhosts={session.query(Host).count()}')
+	send_hosts_to_db(xml_file, scan, session)
 
 
 def refresh_db(session):
@@ -189,7 +198,11 @@ def main():
 		# todo read config file, run nmap scan, parse results, pass results to parser and send to database
 		pass
 	elif options.xmlfilename:
-		scan_xml_file(options.xmlfilename, session)
+		db_xmlfiles = session.query(XMLFile).all()
+		if options.xmlfilename in [k.xml_filename for k in db_xmlfiles]:
+			logger.warning(f'[sxf] skipping {options.xmlfilename} already in db')
+		else:
+			scan_xml_file(options.xmlfilename, session)
 	elif options.xmlpath:
 		xmllist = glob.glob(options.xmlpath + '/*.xml')
 		scan_path(xmllist, session)

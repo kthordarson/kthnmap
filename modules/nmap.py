@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, MetaData, Column, Integer, String, DateTime, Date, Boolean, ForeignKey, text, update
+from sqlalchemy import create_engine, MetaData, Column, Integer, Float, String, DateTime, Date, Boolean, ForeignKey, text, update
 from sqlalchemy.exc import (ArgumentError, CompileError, DataError, IntegrityError, OperationalError, ProgrammingError)
 from sqlalchemy import Engine
 from sqlalchemy.orm import (DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session)
@@ -27,6 +27,7 @@ class XMLFile(Base):
 	scanargs = Column(String(255))
 	valid = Boolean
 	read_count = Column(Integer)
+	process_time = Column(Float)
 
 	def __init__(self, filename:str):
 		self.xml_filename = filename
@@ -39,6 +40,7 @@ class XMLFile(Base):
 		self.scanner = None
 		self.scanstart_str = None
 		self.scanargs = None
+		self.process_time = 0.0
 		self.et_xml_parse()
 
 	def __repr__(self):
@@ -66,8 +68,6 @@ class XMLFile(Base):
 			self.scanstart_str = 'error'
 			self.scanargs = 'error'
 
-			
-
 	def get_libnmap_report(self) -> NmapReport:
 		self.read_count += 1
 		np = NmapParser()
@@ -94,10 +94,47 @@ class XMLFile(Base):
 			hosts.append(Host(host.ipv4, host.mac, host.vendor, host.hostnames, rep.started, rep.endtime, self.file_id))
 		return hosts
 
+	def get_host(self, ip_addr):
+		# h = self.root.find(f".//host/*[@addr='{ip_addr}']..//")
+		h = self.root.findall(f".//*[@addr='{ip_addr}']..//")		
+		return h
+	
+	def get_host_ports(self, ip_addr):
+		#h = self.get_host(ip_addr)
+		#hp = [k.attrib for k in h if k.tag=='port']
+		try:
+			ports = [k for k in self.root.find(f".//*[@addr='{ip_addr}']../ports")]
+		except TypeError as e:
+			#logger.error(f'{e} ip_addr:{ip_addr}')
+			return []
+		# create port dict for each port
+		hp = []
+		for p in ports:			
+			p_portid = p.get('portid')
+			if not p_portid:
+				p_portid = '0'
+			p_protocol = p.get('protocol')
+			if p.find('service'):
+				p_name = p.find('service').get('name')
+			else:
+				p_name = ''
+			if p.find('service'):
+				p_product = p.find('service').get('product')
+			else:
+				p_product = ''
+			pitem = {
+				'portid': p_portid,
+				'protocol': p_protocol,
+				'name' : p_name,
+				'product' : p_product
+			}
+			hp.append(pitem)
+		return hp
+
 	def get_hosts(self, scanid):
 		hosts = []
 		if self.valid:
-			hosts_ = self.root.findall('.//host')
+			hosts_ = self.root.findall('.//host/.')
 			if len(hosts_) == 0:
 				logger.warning(f'[?] {self} hosts_ empty?')
 			for h in hosts_:
@@ -132,7 +169,28 @@ class XMLFile(Base):
 				# 	hostname = f'{ip_address}-unknown'
 				# get open ports and services for host
 				# [k.attrib for k in host.findall('./ports//port//')]
-				host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid)
+				#port_dict = [k.attrib for k in h.find('ports')]
+				#port_dict = [{'ipaddr':ip_address, 'portattrib':k.attrib, 'port':k} for k in h.findall('./ports//')]
+				#hostports = [{'port':k,'tag':k.tag,'attrib': k.attrib} for k in h.findall('./ports/./')]
+				#print(f'port_dict = {len(port_dict)}')
+				#for pd in port_dict:
+				#	print(f'\t pd = {pd}')
+				#print(f'-'*30)
+				#print(f'hostports = {len(hostports)}')
+				#print(hostports)
+				#print(f'-'*30)
+				hp = self.get_host_ports(ip_address)
+				# print(hp)
+				try:
+					host_portlist = ','.join(k['portid'] for k in hp)
+				except TypeError as e:
+					logger.warning(e)
+					print(hp)
+					host_portlist = ''
+				#print(f'hp = {hp}')
+				#print(f'-'*30)
+				#print(f'hostportlist = {host_portlist}')
+				host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid, host_portlist)
 				hosts.append(host)
 			#ip_addresses = [k.find("address[@addrtype='ipv4']").get('addr') for k in hosts_]
 			#hostnames = [k.find('.//hostname') for k in hosts_]
@@ -163,6 +221,7 @@ class Host(Base):
 	host_id = Column(Integer, primary_key=True)
 	xml_id = Column(Integer)
 	ip_address = Column(String(255))
+	portlist = Column(String(255))
 	mac_address = Column(String(255))
 	vendor = Column(String(255))
 	hostname = Column(String(255))
@@ -176,10 +235,11 @@ class Host(Base):
 	scan_count = Column(Integer)
 	refresh_count = Column(Integer)
 
-	def __init__(self, ip_address, mac_address, vendor, hostname, starttime,endtime, xml_id, scanid):
+	def __init__(self, ip_address, mac_address, vendor, hostname, starttime,endtime, xml_id, scanid, portlist):
 		self.first_seen_scan_id = scanid		
 		self.xml_id = xml_id
 		self.ip_address = ip_address
+		self.portlist = portlist
 		self.mac_address = mac_address
 		self.vendor = vendor
 		self.hostname = hostname
@@ -202,19 +262,30 @@ class Host(Base):
 		self.last_seen_scan_id = scan.scan_id
 		self.last_seen_xml_id = xmlfile.file_id
 		self.refresh_count += 1
-		logger.debug(f'{self} refresh lssid:{self.last_seen_scan_id} lsxid:{self.last_seen_xml_id} rc:{self.refresh_count}  xml={xmlfile.file_id} scan sid={scan.scan_id} sfid={scan.file_id} ')
-class Ports(Base):
+		
+class Port(Base):
 	__tablename__ = 'ports'
 	port_id = Column(Integer, primary_key=True)
 	portnumber = Column(Integer)
-	service = Column(String(255))
+	host_id = Column(Integer)
+	scan_id = Column(Integer)
+	file_id = Column(Integer)
+	name = Column(String(255))
+	product = Column(String(255))
+	protocol = Column(String(255))
 	first_seen = Column(String(255))
 	last_seen = Column(String(255))
-	def __init__(self, portnumber, service, first_seen):
+	def __init__(self, portnumber:int, first_seen:str, host_id:int, scan_id:int, file_id:int, name:str, product:str, protocol:str):
+		self.portnumber = portnumber
+		self.file_id = file_id
+		self.host_id = host_id
+		self.scan_id = scan_id
 		#self.ip_address = ip_address
 		self.first_seen = first_seen
 		self.last_seen = self.first_seen
-		self.service = service
+		self.name = name
+		self.product = product
+		self.protocol = protocol
 
 class LogEntry(Base):
 	__tablename__ = 'scanlog'
@@ -416,7 +487,7 @@ def xmlscan_to_database(scan:Scan=None, xmlfile=None, check=True, session=None):
 				ports_ = [session.add(k) for k in host.portlist]
 				logger.debug(f'[todb] hostid={hostid} ports={len(ports_)}')
 				session.commit()
-				for p in session.query(Ports).filter(Ports.hostid == hostid).all():
+				for p in session.query(Port).filter(Port.hostid == hostid).all():
 					portcheck = get_hostport(session=session, portnumber=p.portnumber, hostid=hostid)
 					logger.debug(f'[todb] p={p} portcheck = {portcheck} hostid={hostid} ports={len(ports_)}')
 					if len(portcheck) == 0:
@@ -451,7 +522,7 @@ def xmlscan_to_database(scan:Scan=None, xmlfile=None, check=True, session=None):
 						if p.version != portcheck.version:
 							logger.warning(f'version changed {p.version} to  {portcheck.version}')
 							portupdatecount += 1
-						stmt = update(Ports).where(Ports.portnumber == p.portnumber).where(Ports.hostid == hostid).values(lastseen=p.lastseen, servicename=p.servicename, product=p.product, extra=p.extra, version=p.version, ostype=p.ostype)
+						stmt = update(Port).where(Port.portnumber == p.portnumber).where(Port.hostid == hostid).values(lastseen=p.lastseen, servicename=p.servicename, product=p.product, extra=p.extra, version=p.version, ostype=p.ostype)
 						session.execute(stmt)
 
 #			ports = str([k.portnumber for k in host.ports]).replace('[','').replace(']','')
