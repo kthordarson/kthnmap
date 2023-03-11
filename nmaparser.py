@@ -75,22 +75,22 @@ def scan_path(xmllist:list, engine, dbtype):
 				send_hosts_to_db(db_xml.file_id, scan.scan_id, dbtype)
 				# t = executor.submit(send_hosts_to_db, args=(db_xml.file_id, scan.scan_id, dbtype))
 				# send_threads.append(t)
-		logger.info(f'send_threads={len(send_threads)}')
-		tasks = []
-		with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-			for t in send_threads:
-				tasks.append(executor.submit(t.run()))
-				logger.info(f'[SP] tasks {len(tasks)}')
-		for task in as_completed(tasks):
-			res = None
-			try:
-				res = task.result()
-			except TypeError as e:
-				logger.warning(f'[SP] task {task} exception {e}')
-			ex = task.exception()
-			if ex:
-				logger.error(f'[SP] task {task} res:{res} exception {ex}')
-			logger.info(f'[SP] task {task} done res:{res}')
+		# logger.info(f'send_threads={len(send_threads)}')
+		# tasks = []
+		# with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+		# 	for t in send_threads:
+		# 		tasks.append(executor.submit(t.run()))
+		# 		logger.info(f'[SP] tasks {len(tasks)}')
+		# for task in as_completed(tasks):
+		# 	res = None
+		# 	try:
+		# 		res = task.result()
+		# 	except TypeError as e:
+		# 		logger.warning(f'[SP] task {task} exception {e}')
+		# 	ex = task.exception()
+		# 	if ex:
+		# 		logger.error(f'[SP] task {task} res:{res} exception {ex}')
+		# 	logger.info(f'[SP] task {task} done res:{res}')
 
 		#_ = [t.run() for t in send_threads]
 					#t.start()
