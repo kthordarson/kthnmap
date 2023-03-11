@@ -9,7 +9,7 @@ from loguru import logger
 import xml.etree.ElementTree as ET
 from xml.etree.ElementTree import ParseError
 from bs4 import BeautifulSoup
-
+from libnmap.parser import NmapParser, NmapReport, NmapHost, NmapService
 
 class Base(DeclarativeBase):
 	pass
@@ -19,31 +19,65 @@ def db_init(engine: Engine) -> None:
 
 class XMLFile(Base):
 	__tablename__ = 'xmlfiles'
-	id = Column(Integer, primary_key=True)
-	xmlfile = Column(String(255))
+	file_id = Column(Integer, primary_key=True)
+	xml_filename = Column(String(255))
 	scandate = Column(String(255))
 	scanner = Column(String(255))
 	scanstart_str = Column(String(255))
 	scanargs = Column(String(255))
 	valid = Boolean
+	read_count = Column(Integer)
 
-	def __init__(self, xmlfile):
-		self.xmlfile = xmlfile
-		self.valid = 0
+	def __init__(self, filename:str):
+		self.xml_filename = filename
+		self.valid = False
+		self.xmldata = None
+		self.root = None
+		self.hostlist = []
+		self.read_count = 0
+		self.scandate = None
+		self.scanner = None
+		self.scanstart_str = None
+		self.scanargs = None
+		self.et_xml_parse()
+
+	def __repr__(self):
+		return f'<XMLFile id:{self.file_id} xml_filename:{self.xml_filename} scanner:{self.scanner} sd:{self.scandate}> '
+	
+	def et_xml_parse(self):
 		try:
-			self.xmldata = ET.parse(self.xmlfile)
+			self.xmldata = ET.parse(self.xml_filename)
 			self.root = self.xmldata.getroot()
 			self.valid = True
 		except ParseError as e:
-			logger.error(f'[!] Error {e} while parsing {self.xmlfile}')
+			logger.error(f'[!] Error {e} while parsing self.xml_filename={self.xml_filename}')
 			self.valid = False
+		except TypeError as e:
+			logger.error(f'[!] TypeError {e} while parsing self.xml_filename={self.xml_filename}')
+			self.valid = False
+		if self.valid:
+			self.scanner = self.root.attrib['scanner']
+			self.scandate = self.root.attrib['start']
+			self.scanstart_str = self.root.attrib['startstr']
+			self.scanargs = self.root.attrib['args']
+		else:
+			self.scanner = 'error'
+			self.scandate = 'error'
+			self.scanstart_str = 'error'
+			self.scanargs = 'error'
 
-	def __repr__(self):
-		return f'<XMLFile {self.xmlfile}> '
+			
+
+	def get_libnmap_report(self) -> NmapReport:
+		self.read_count += 1
+		np = NmapParser()
+		report = np.parse_fromfile(self.xml_filename)
+		return report
 
 	def get_ports(self):
 		# get open ports and services from xlmfile
 		# returns a list of dicts with portnumber and service info
+		self.read_count += 1
 		ports = []
 		if self.valid:
 			ports_ = self.root.findall('.//port')
@@ -51,14 +85,21 @@ class XMLFile(Base):
 			# [{'idx':idx,'tag':k.tag,'attrib':k.attrib, 'service':[k.attrib for k in k.findall('service')]}  for idx,k in enumerate(root.findall('./host//*')) if k.tag =='port']
 		return ports
 
-	def get_hosts(self):
+	def get_hosts_libnmap(self):
+		self.read_count += 1
+		rep = self.get_libnmap_report()
+		hosts_ = [k for k in rep.hosts if k.is_up()]
+		hosts = []
+		for host in hosts_:
+			hosts.append(Host(host.ipv4, host.mac, host.vendor, host.hostnames, rep.started, rep.endtime, self.file_id))
+		return hosts
+
+	def get_hosts(self, scanid):
 		hosts = []
 		if self.valid:
-			self.scanner = self.root.attrib['scanner']
-			self.scandate = self.root.attrib['start']
-			self.scanstart_str = self.root.attrib['startstr']
-			self.scanargs = self.root.attrib['args']
 			hosts_ = self.root.findall('.//host')
+			if len(hosts_) == 0:
+				logger.warning(f'[?] {self} hosts_ empty?')
 			for h in hosts_:
 				# [(k.tag, k.attrib) for k in host]
 				# [k for k in host.iter()]
@@ -67,41 +108,60 @@ class XMLFile(Base):
 				starttime = h.get('starttime')
 				endtime = h.get('endtime')
 				ip_address = h.find("address[@addrtype='ipv4']").get('addr')
-				if h.find("address[@addrtype='mac']"):
+				try:
 					vendor = h.find("address[@addrtype='mac']").get('vendor')
-					macaddr = h.find("address[@addrtype='mac']").get('addr')
-				else:
+				except AttributeError as e:
 					vendor = 'unknown'
+				try:
+					macaddr = h.find("address[@addrtype='mac']").get('addr')
+				except AttributeError as e:
 					macaddr = 'unknown'
-				if h.find('.//hostname'):
-					hostname = h.find('.//hostname') or 'unknown'
-				else:
-					hostname = f'{ip_address}-unknown'
+				try:
+					hostname = h.find('.//hostname').get('name')
+				except AttributeError as e:
+					hostname = ip_address
+				# if h.find("address[@addrtype='mac']"):
+				# 	vendor = h.find("address[@addrtype='mac']").get('vendor')
+				# 	macaddr = h.find("address[@addrtype='mac']").get('addr')
+				# else:
+				# 	vendor = 'unknown'
+				# 	macaddr = 'unknown'
+				# if h.find('.//hostname'):
+				# 	hostname = h.find('.//hostname') or 'unknown'
+				# else:
+				# 	hostname = f'{ip_address}-unknown'
 				# get open ports and services for host
 				# [k.attrib for k in host.findall('./ports//port//')]
-				host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime)
+				host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid)
 				hosts.append(host)
 			#ip_addresses = [k.find("address[@addrtype='ipv4']").get('addr') for k in hosts_]
 			#hostnames = [k.find('.//hostname') for k in hosts_]
+		else:
+			logger.warning(f'[?] {self} not valid?')
+		if len(hosts) == 0 :
+			logger.warning(f'[?] {self} no hosts! not valid?')
 		return hosts
 
 class Scan(Base):
 	__tablename__ = 'scans'
-	id = Column(Integer, primary_key=True)
-	file_id = Column(Integer, ForeignKey('xmlfiles.id'))
-	scan_date = Column(String(255))
+	scan_id = Column(Integer, primary_key=True)
+	file_id = Column(Integer, ForeignKey('xmlfiles.file_id'))
+	scan_date_todb = Column(String(255))
 	valid = Boolean
-	def __init__(self, file_id, scan_date):
+	scan_count = Column(Integer)
+	def __init__(self, file_id, scan_date_todb):
 		self.file_id = file_id
-		self.scan_date = scan_date
+		self.scan_date_todb = scan_date_todb
 		self.valid = True
+		self.scan_count = 0
 
 	def __repr__(self):
-		return f'Scan {self.id} {self.scan_date} fileid={self.file_id}'
+		return f'Scan id={self.scan_id} fileid={self.file_id} sdtodb={self.scan_date_todb} '
 
 class Host(Base):
 	__tablename__ = 'hosts'
-	id = Column(Integer, primary_key=True)
+	host_id = Column(Integer, primary_key=True)
+	xml_id = Column(Integer)
 	ip_address = Column(String(255))
 	mac_address = Column(String(255))
 	vendor = Column(String(255))
@@ -110,7 +170,15 @@ class Host(Base):
 	endtime = Column(String(255))
 	first_seen = Column(String(255))
 	last_seen = Column(String(255))
-	def __init__(self, ip_address, mac_address, vendor, hostname, starttime,endtime):
+	first_seen_scan_id = Column(Integer)
+	last_seen_scan_id = Column(Integer)
+	last_seen_xml_id = Column(Integer)
+	scan_count = Column(Integer)
+	refresh_count = Column(Integer)
+
+	def __init__(self, ip_address, mac_address, vendor, hostname, starttime,endtime, xml_id, scanid):
+		self.first_seen_scan_id = scanid		
+		self.xml_id = xml_id
 		self.ip_address = ip_address
 		self.mac_address = mac_address
 		self.vendor = vendor
@@ -119,12 +187,25 @@ class Host(Base):
 		self.endtime = endtime
 		self.first_seen = datetime.now()
 		self.last_seen = self.first_seen
-	def __repr__(self):
-		return f'Host {self.ip_address} {self.hostname}'
+		self.scan_count = 1
+		self.refresh_count = 0
 
+	def __repr__(self):
+		return f'<Host id: {self.host_id} xmlid:{self.xml_id} ipv4:{self.ip_address} hostname:{self.hostname}>'
+
+	def refresh_x(self, xmlfileid, scanid):
+		self.refresh_count += 1
+		self.last_seen_xml_id = xmlfileid
+		self.last_seen_scan_id = scanid
+
+	def refresh(self, xmlfile:XMLFile, scan:Scan) -> None:
+		self.last_seen_scan_id = scan.scan_id
+		self.last_seen_xml_id = xmlfile.file_id
+		self.refresh_count += 1
+		logger.debug(f'{self} refresh lssid:{self.last_seen_scan_id} lsxid:{self.last_seen_xml_id} rc:{self.refresh_count}  xml={xmlfile.file_id} scan sid={scan.scan_id} sfid={scan.file_id} ')
 class Ports(Base):
 	__tablename__ = 'ports'
-	id = Column(Integer, primary_key=True)
+	port_id = Column(Integer, primary_key=True)
 	portnumber = Column(Integer)
 	service = Column(String(255))
 	first_seen = Column(String(255))
@@ -138,9 +219,9 @@ class Ports(Base):
 class LogEntry(Base):
 	__tablename__ = 'scanlog'
 	id = Column(Integer, primary_key=True)
-	scan_id = Column(Integer, ForeignKey('scans.id'))
-	host_id = Column(Integer, ForeignKey('hosts.id'))
-	port_id = Column(Integer, ForeignKey('ports.id'))
+	scan_id = Column(Integer)#, ForeignKey('scans.scan_id'))
+	host_id = Column(Integer)#, ForeignKey('hosts.port_id'))
+	port_id = Column(Integer)#, ForeignKey('ports.host_id'))
 
 	date = Column(String(255))
 	def __init__(self, scan_id, host_id, port_id, date):
