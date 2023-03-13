@@ -20,17 +20,14 @@ class Base(DeclarativeBase):
 def db_init(engine: Engine) -> None:
 	logger.info(f'dbinit {engine.name}')
 	Base.metadata.create_all(bind=engine)
-class Donk():
-	def __init__(self):
-		self.donk = 'donk'
-		self.root = 'root'
+
 class XMLFile(Base):
 	__tablename__ = 'xmlfiles'
 	file_id = Column(Integer, primary_key=True)
 	xml_filename = Column(String(255))
-	scandate = Column(String(255))
+	scandate = Column(DateTime)
 	scanner = Column(String(255))
-	scanstart_str = Column(String(255))
+	scanstart_str = Column(DateTime)
 	scanargs = Column(String(512))
 	valid = Column(Boolean)
 	read_count = Column(Integer)
@@ -50,8 +47,9 @@ class XMLFile(Base):
 		try:
 			self.root = self.et_xml_parse()
 		except InvalidXMLFile as e:
-			logger.error(f'[X] InvalidXMLFile {e} file: {filename}')
+			errmsg = f'[X] InvalidXMLFile {e} file: {filename}'
 			self.valid = False
+			raise InvalidXMLFile(errmsg)
 		except Exception as e:
 			logger.error(f'[X] unhandled exception {e} {type(e)} file: {filename}')
 			self.valid = False
@@ -60,15 +58,11 @@ class XMLFile(Base):
 		return f'<XMLFile id:{self.file_id} xml_filename:{self.xml_filename} scanner:{self.scanner} sd:{self.scandate} valid:{self.valid}> '
 
 	def et_xml_parse(self):
+		root = []
 		try:
 			xmldata = ET.parse(self.xml_filename)
 			root = xmldata.getroot()
 			self.valid = True
-			self.scanner = root.attrib['scanner']
-			self.scandate =root.attrib['start']
-			self.scanstart_str = root.attrib['startstr']
-			self.scanargs = root.attrib['args'][:255]
-			return root
 		except ParseError as e:
 			errmsg = f'[!] ParseError {e} while parsing {self.xml_filename}'
 			self.valid = False
@@ -84,6 +78,24 @@ class XMLFile(Base):
 			self.valid = False
 			self.root = ''
 			raise InvalidXMLFile(errmsg)
+		try:
+			self.scanner = root.attrib['scanner']
+		except Exception as e:
+			logger.error(f'[!] {e} parsing scanner from {self.xml_filename}')
+		try:
+			self.scandate = datetime.fromtimestamp(int(root.attrib['start']))
+		except Exception as e:
+			logger.error(f'[!] {e} parsing scandate from {self.xml_filename}')
+		try:
+			self.scanstart_str = datetime.strptime(root.attrib['startstr'], '%a %b %d %H:%M:%S %Y')
+		except Exception as e:
+			logger.error(f'[!] {e} parsing scanstart_str from {self.xml_filename}')
+		try:
+			self.scanargs = root.attrib['args'][:255]
+		except Exception as e:
+			logger.error(f'[!] {e} parsing scanargs from {self.xml_filename}')
+
+		return root
 
 	def get_libnmap_report(self) -> NmapReport:
 		self.read_count += 1
@@ -186,7 +198,6 @@ class XMLFile(Base):
 					host_portlist = ','.join(k['portid'] for k in hp)
 				except TypeError as e:
 					logger.warning(e)
-					print(hp)
 					host_portlist = ''
 				host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid, host_portlist)
 				hosts.append(host)
@@ -201,14 +212,18 @@ class Scan(Base):
 	__tablename__ = 'scans'
 	scan_id = Column(Integer, primary_key=True)
 	file_id = Column(Integer, ForeignKey('xmlfiles.file_id'))
-	scan_date_todb = Column(String(255))
-	valid = Column(Boolean)
+	scan_date_todb = Column(DateTime)
 	scan_count = Column(Integer)
+	host_count = Column(Integer)
+	port_count = Column(Integer)
+	valid = Column(Boolean)
 	def __init__(self, file_id, scan_date_todb):
 		self.file_id = file_id
 		self.scan_date_todb = scan_date_todb
 		self.valid = True
 		self.scan_count = 0
+		self.host_count = 0
+		self.port_count = 0
 
 	def __repr__(self):
 		return f'Scan id={self.scan_id} fileid={self.file_id} sdtodb={self.scan_date_todb} '
@@ -224,8 +239,8 @@ class Host(Base):
 	hostname = Column(String(255))
 	starttime = Column(String(255))
 	endtime = Column(String(255))
-	first_seen = Column(String(255))
-	last_seen = Column(String(255))
+	first_seen = Column(DateTime)
+	last_seen = Column(DateTime)
 	scan_id = Column(Integer)
 	last_seen_scan_id = Column(Integer)
 	last_seen_xml_id = Column(Integer)
@@ -265,15 +280,15 @@ class Port(Base):
 	name = Column(String(255))
 	product = Column(String(255))
 	protocol = Column(String(255))
-	first_seen = Column(String(255))
-	last_seen = Column(String(255))
+	first_seen = Column(DateTime)
+	last_seen = Column(DateTime)
 	def __init__(self, portnumber:int, first_seen:str, host_id:int, scan_id:int, file_id:int, name:str, product:str, protocol:str):
 		self.portnumber = portnumber
 		self.file_id = file_id
 		self.host_id = host_id
 		self.scan_id = scan_id
 		#self.ip_address = ip_address
-		self.first_seen = first_seen
+		self.first_seen = datetime.strptime(first_seen,'%Y-%m-%d %H:%M:%S')
 		self.last_seen = self.first_seen
 		self.name = name if name else 'noname'
 		self.product = product if product else 'noproduct'
