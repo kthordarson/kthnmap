@@ -178,7 +178,13 @@ class XMLFile(Base):
 				raise InvalidXMLFile(errmsg)
 			for h in hosts_:
 				starttime = h.get('starttime')
+				if not starttime:
+					logger.warning(f'[!] no starttime found for {h}')
+					continue
 				endtime = h.get('endtime')
+				if not endtime:
+					logger.warning(f'[!] no endtime found for {h}')
+					continue
 				ip_address = h.find("address[@addrtype='ipv4']").get('addr')
 				try:
 					vendor = h.find("address[@addrtype='mac']").get('vendor')
@@ -198,8 +204,14 @@ class XMLFile(Base):
 				except TypeError as e:
 					logger.warning(e)
 					host_portlist = ''
-				host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid, host_portlist)
-				hosts.append(host)
+				try:
+					host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid, host_portlist)
+					hosts.append(host)
+				except TypeError as e:
+					logger.error(f'[!] {e} h:{h} starttime:{starttime} endtime:{endtime} ip_address:{ip_address} vendor:{vendor} macaddr:{macaddr} hostname:{hostname} hp:{hp} host_portlist:{host_portlist}')
+					continue
+
+
 		else:
 			logger.warning(f'[?] {self} not valid?')
 		if len(hosts) == 0 :
@@ -215,17 +227,15 @@ class Scan(Base):
 	scan_count = Column(Integer)
 	host_count = Column(Integer)
 	port_count = Column(Integer)
-	valid = Column(Boolean)
 	def __init__(self, file_id, scan_date_todb):
 		self.file_id = file_id
 		self.scan_date_todb = scan_date_todb
-		self.valid = True
 		self.scan_count = 0
 		self.host_count = 0
 		self.port_count = 0
 
 	def __repr__(self):
-		return f'Scan id={self.scan_id} fileid={self.file_id} sdtodb={self.scan_date_todb} '
+		return f'Scan id={self.scan_id} fileid={self.file_id} hc:{self.host_count} pc:{self.port_count} '
 
 class Host(Base):
 	__tablename__ = 'hosts'
