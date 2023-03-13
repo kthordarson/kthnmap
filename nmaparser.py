@@ -53,7 +53,7 @@ def run_nmap(session):
 	return nmapres
 
 
-def scan_path(xmllist:list, engine, dbtype):
+def scan_path(xmllist:list, engine:Engine, dbtype:str):
 	engine = get_engine(dbtype)
 	Session = sessionmaker(bind=engine)
 	xtasks = []
@@ -72,31 +72,10 @@ def scan_path(xmllist:list, engine, dbtype):
 				scan = Scan(db_xml.file_id, datetime.now())
 				session.add(scan)
 				session.commit()
-				send_hosts_to_db(db_xml.file_id, scan.scan_id, dbtype)
-				# t = executor.submit(send_hosts_to_db, args=(db_xml.file_id, scan.scan_id, dbtype))
-				# send_threads.append(t)
-		# logger.info(f'send_threads={len(send_threads)}')
-		# tasks = []
-		# with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-		# 	for t in send_threads:
-		# 		tasks.append(executor.submit(t.run()))
-		# 		logger.info(f'[SP] tasks {len(tasks)}')
-		# for task in as_completed(tasks):
-		# 	res = None
-		# 	try:
-		# 		res = task.result()
-		# 	except TypeError as e:
-		# 		logger.warning(f'[SP] task {task} exception {e}')
-		# 	ex = task.exception()
-		# 	if ex:
-		# 		logger.error(f'[SP] task {task} res:{res} exception {ex}')
-		# 	logger.info(f'[SP] task {task} done res:{res}')
-
-		#_ = [t.run() for t in send_threads]
-					#t.start()
+				send_hosts_to_db(db_xml.file_id, scan.scan_id, session, dbtype)
 
 
-def send_hosts_to_db(db_xml_id:int, scan_id:int, dbtype:str):
+def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:str):
 	# logger.info(f'[sp] {db_xml} returned {len(xml_hosts)} hosts from {xmlf}')
 	result = []
 	engine = get_engine(dbtype)
@@ -115,10 +94,6 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, dbtype:str):
 		logger.error(errmsg)
 		return errmsg
 	db_hosts = session.query(Host).all()
-	# xml_iplist = [k.ip_address for k in xml_hosts]
-	# db_iplist = [k.ip_address for k in db_hosts]
-	# new_xml_hosts = set(xml_iplist) - set(db_iplist)
-	#logger.info(f'[sh] t:{(datetime.now()-t0).total_seconds()} reading xmlfile:{os.path.basename(db_xml.xml_filename)} xmlh={len(xml_hosts)} dbh={len(db_hosts)} nxh={len(new_xml_hosts)}')
 	for xhost in xml_hosts:
 		if xhost.ip_address in [k.ip_address for k in db_hosts]:
 			#xhost.refresh(db_xml.file_id, scan.scan_id)
@@ -150,7 +125,7 @@ def scan_filex(xmlfilename:str, session:sessionmaker):
 	logger.info(f'[sf] nmapxml:{nmapxml} {nmapxml.scandate} scan:{scan}')
 	return nmapxml, scan
 
-def scan_xml_file(xmlfilename, session):
+def scan_xml_file(xmlfilename:str, session:sessionmaker, dbtype:str):
 	xml_file = XMLFile(xmlfilename)
 	session.add(xml_file)
 	try:
@@ -165,7 +140,7 @@ def scan_xml_file(xmlfilename, session):
 	session.commit()
 	hosts = xml_file.get_hosts(scan.scan_id)
 	logger.debug(f'[sxf] nmap_xml_id:{xml_file.file_id} scandate:{xml_file.scandate} scan_id:{scan.scan_id} hosts:{len(hosts)} ') # dbhosts={session.query(Host).count()}')
-	send_hosts_to_db(xml_file, scan, session)
+	send_hosts_to_db(xml_file.file_id, scan.scan_id, session, dbtype)
 
 
 def refresh_db(session):
@@ -210,7 +185,7 @@ def main():
 		if options.xmlfilename in [k.xml_filename for k in db_xmlfiles]:
 			logger.warning(f'[sxf] skipping {options.xmlfilename} already in db')
 		else:
-			scan_xml_file(options.xmlfilename, session)
+			scan_xml_file(options.xmlfilename, session, options.dbtype)
 	elif options.xmlpath:
 		xmllist = glob.glob(options.xmlpath + '/*.xml')
 		scan_path(xmllist, engine, options.dbtype)
