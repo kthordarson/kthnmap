@@ -20,7 +20,8 @@ VERSION = "0.1.3"
 RELEASE_DATE = "2023-03-11"
 NMAP_BINARY = '/usr/local/bin/nmap'
 ADDRESS_FILE = 'iplist2.txt'
-PORTLIST_FILE = 'portlist.txt'
+PORTLIST_FILE = 'portlist2.txt'
+LOGFILE = 'nmaparser.log'
 
 def exec_nmap(addr, ports):
 	portlist = ''.join([k for k in ports])
@@ -29,6 +30,9 @@ def exec_nmap(addr, ports):
 	out, err = Popen(cmdstr, stdout=PIPE, stderr=PIPE).communicate()
 	res = {'out':out.decode('utf-8'),'err':err.decode('utf-8'),'xmlfilename':xmlout}
 	logger.info(f'[nmapres] addr={addr} res={len(res)} stdout/err={len(out)}/{len(err)} filename={xmlout} ')
+	with open(LOGFILE, 'a') as f:
+		f.write(f'{xmlout}\n')
+		f.write(f'err: {err.decode("utf-8")}\n')
 	return res
 
 def db_scan(scan, session):
@@ -86,37 +90,39 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:st
 	r_count = 0
 	port_count = 0
 	db_xml = session.query(XMLFile).filter(XMLFile.file_id == db_xml_id).first()
-	scan = session.query(Scan).filter(Scan.scan_id == scan_id).first()
-	try:
-		xml_hosts = db_xml.get_hosts(scan.scan_id)
-	except InvalidXMLFile as e:
-		errmsg = f'[!] InvalidXMLFile {e} db_xml:{db_xml.xml_filename}'
-		logger.error(errmsg)
-		return errmsg
-	db_hosts = session.query(Host).all()
-	for xhost in xml_hosts:
-		if xhost.ip_address in [k.ip_address for k in db_hosts]:
-			#xhost.refresh(db_xml.file_id, scan.scan_id)
-			r_count += 1
-		else:
-			session.add(xhost)
-			nh_count += 1
-	db_xml.process_time = (datetime.now()-t0).total_seconds()
-	session.commit()
-	# db_hosts_count = session.query(Host).count()
-	for host in session.query(Host).all():
-		hp = db_xml.get_host_ports(host.ip_address)
-		for port in hp:
-			pname = port.get('name')
-			prod = port.get('product')
-			proto = port.get('protocol')
-			new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
-			session.add(new_port)
-			port_count += 1
-	#logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count} portcount:{port_count} db_xml:{db_xml}')
-	session.commit()
-	session.close()
-	return 'ok'
+	if db_xml.valid:
+		scan = session.query(Scan).filter(Scan.scan_id == scan_id).first()
+		try:
+			xml_hosts = db_xml.get_hosts(scan.scan_id)
+		except InvalidXMLFile as e:
+			errmsg = f'[!] InvalidXMLFile {e} db_xml:{db_xml.xml_filename}'
+			logger.error(errmsg)
+			return errmsg
+		db_hosts = session.query(Host).all()
+
+		for xhost in xml_hosts:
+			if xhost.ip_address in [k.ip_address for k in db_hosts]:
+				#xhost.refresh(db_xml.file_id, scan.scan_id)
+				r_count += 1
+			else:
+				session.add(xhost)
+				nh_count += 1
+		db_xml.process_time = (datetime.now()-t0).total_seconds()
+		session.commit()
+		# db_hosts_count = session.query(Host).count()
+		for host in session.query(Host).all():
+			hp = db_xml.get_host_ports(host.ip_address)
+			for port in hp:
+				pname = port.get('name')
+				prod = port.get('product')
+				proto = port.get('protocol')
+				new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
+				session.add(new_port)
+				port_count += 1
+		#logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count} portcount:{port_count} db_xml:{db_xml}')
+		session.commit()
+		session.close()
+		return 'ok'
 
 
 def scan_filex(xmlfilename:str, session:sessionmaker):

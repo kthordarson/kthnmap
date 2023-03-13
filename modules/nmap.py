@@ -49,12 +49,15 @@ class XMLFile(Base):
 		self.process_time = 0.0
 		try:
 			self.root = self.et_xml_parse()
+		except InvalidXMLFile as e:
+			logger.error(f'[X] InvalidXMLFile {e} file: {filename}')
+			self.valid = False
 		except Exception as e:
-			logger.error(f'[X] {e} {type(e)} file:{filename}')
+			logger.error(f'[X] unhandled exception {e} {type(e)} file: {filename}')
 			self.valid = False
 
 	def __repr__(self):
-		return f'<XMLFile id:{self.file_id} xml_filename:{self.xml_filename} scanner:{self.scanner} sd:{self.scandate}> '
+		return f'<XMLFile id:{self.file_id} xml_filename:{self.xml_filename} scanner:{self.scanner} sd:{self.scandate} valid:{self.valid}> '
 
 	def et_xml_parse(self):
 		try:
@@ -67,16 +70,19 @@ class XMLFile(Base):
 			self.scanargs = root.attrib['args'][:255]
 			return root
 		except ParseError as e:
-			errmsg = f'[!] Error {e} while parsing self.xml_filename={self.xml_filename}'
+			errmsg = f'[!] ParseError {e} while parsing {self.xml_filename}'
 			self.valid = False
+			self.root = ''
 			raise InvalidXMLFile(errmsg)
 		except TypeError as e:
-			errmsg = f'[!] TypeError {e} while parsing self.xml_filename={self.xml_filename}'
+			errmsg = f'[!] TypeError {e} while parsing {self.xml_filename}'
 			self.valid = False
+			self.root = ''
 			raise InvalidXMLFile(errmsg)
 		except AttributeError as e:
-			errmsg = f'[!] AttributeError {e} while parsing self.xml_filename={self.xml_filename}'
+			errmsg = f'[!] AttributeError {e} while parsing {self.xml_filename}'
 			self.valid = False
+			self.root = ''
 			raise InvalidXMLFile(errmsg)
 
 	def get_libnmap_report(self) -> NmapReport:
@@ -152,8 +158,9 @@ class XMLFile(Base):
 			try:
 				hosts_ = self.root.findall('.//host/.')
 			except AttributeError as e:
-				logger.error(e)
-				return None
+				logger.error(f'[gh] {self} {e} scanid:{scanid}')
+				self.valid = False
+				return hosts
 			if len(hosts_) == 0:
 				errmsg = f'[?] {self} hosts_ empty?'
 				self.valid = False
@@ -187,6 +194,7 @@ class XMLFile(Base):
 			logger.warning(f'[?] {self} not valid?')
 		if len(hosts) == 0 :
 			logger.warning(f'[?] {self} no hosts! not valid?')
+			self.valid = False
 		return hosts
 
 class Scan(Base):
