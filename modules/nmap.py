@@ -94,7 +94,6 @@ class XMLFile(Base):
 			self.scanargs = root.attrib['args'][:255]
 		except Exception as e:
 			logger.error(f'[!] {e} parsing scanargs from {self.xml_filename}')
-
 		return root
 
 	def get_libnmap_report(self) -> NmapReport:
@@ -255,9 +254,9 @@ class Host(Base):
 		self.mac_address = mac_address
 		self.vendor = vendor
 		self.hostname = hostname
-		self.starttime = starttime
-		self.endtime = endtime
-		self.first_seen = datetime.now()
+		self.starttime = datetime.fromtimestamp(int(starttime))
+		self.endtime = datetime.fromtimestamp(int(endtime))
+		self.first_seen = self.starttime # datetime.now()
 		self.last_seen = self.first_seen
 		self.scan_count = 1
 		self.refresh_count = 0
