@@ -97,7 +97,7 @@ def scan_path(xmllist:list, engine:Engine, dbtype:str):
 					session.commit()
 					#ahc = session.query(Host).count()
 					#apc = session.query(Port).count()
-					logger.debug(f'[SP] {(datetime.now()-t0).total_seconds()}  {idx}/{len(new_xmlfiles)} ')#bhc={db_hostcount} shc:{scan.host_count} spc:{scan.port_count} {ahc}/{apc}')
+					logger.debug(f'[SP] {idx} files of {len(new_xmlfiles)} timer={(datetime.now()-t0).total_seconds()}  ')#bhc={db_hostcount} shc:{scan.host_count} spc:{scan.port_count} {ahc}/{apc}')
 
 
 

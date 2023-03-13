@@ -18,7 +18,7 @@ class Base(DeclarativeBase):
 	pass
 
 def db_init(engine: Engine) -> None:
-	logger.info(f'dbinit {engine.name}')
+	# logger.info(f'dbinit {engine.name}')
 	Base.metadata.create_all(bind=engine)
 
 class XMLFile(Base):
@@ -66,17 +66,14 @@ class XMLFile(Base):
 		except ParseError as e:
 			errmsg = f'[!] ParseError {e} while parsing {self.xml_filename}'
 			self.valid = False
-			self.root = ''
 			raise InvalidXMLFile(errmsg)
 		except TypeError as e:
 			errmsg = f'[!] TypeError {e} while parsing {self.xml_filename}'
 			self.valid = False
-			self.root = ''
 			raise InvalidXMLFile(errmsg)
 		except AttributeError as e:
 			errmsg = f'[!] AttributeError {e} while parsing {self.xml_filename}'
 			self.valid = False
-			self.root = ''
 			raise InvalidXMLFile(errmsg)
 		try:
 			self.scanner = root.attrib['scanner']
@@ -167,7 +164,8 @@ class XMLFile(Base):
 		if self.valid:
 			self.root = self.et_xml_parse()
 			try:
-				hosts_ = self.root.findall('.//host/.')
+				#hosts_ = self.root.findall('.//host/.')
+				hosts_ = [h for h in self.root.findall('./host') if h.get('starttime')]
 			except AttributeError as e:
 				logger.error(f'[gh] {self} {e} scanid:{scanid}')
 				self.valid = False
@@ -179,8 +177,9 @@ class XMLFile(Base):
 			for h in hosts_:
 				starttime = h.get('starttime')
 				if not starttime:
-					logger.warning(f'[!] no starttime found for {h}')
-					continue
+					logger.warning(f'[!] no starttime found for {h} xml_filename:{self.xml_filename}')
+					self.valid = False
+					break
 				endtime = h.get('endtime')
 				if not endtime:
 					logger.warning(f'[!] no endtime found for {h}')
@@ -210,8 +209,6 @@ class XMLFile(Base):
 				except TypeError as e:
 					logger.error(f'[!] {e} h:{h} starttime:{starttime} endtime:{endtime} ip_address:{ip_address} vendor:{vendor} macaddr:{macaddr} hostname:{hostname} hp:{hp} host_portlist:{host_portlist}')
 					continue
-
-
 		else:
 			logger.warning(f'[?] {self} not valid?')
 		if len(hosts) == 0 :
