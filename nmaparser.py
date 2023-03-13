@@ -24,9 +24,9 @@ PORTLIST_FILE = 'portlist2.txt'
 LOGFILE = 'nmaparser.log'
 
 def exec_nmap(addr, ports):
-	portlist = ''.join([k for k in ports])
+	port_list = ''.join([k for k in ports])
 	xmlout = f'scan-{addr}-{datetime.now()}.xml'.replace(':','').replace(' ','').replace('/','-')
-	cmdstr = [NMAP_BINARY,  addr, '-oX', xmlout, '-sV', '-p', portlist] # '--unprivileged',
+	cmdstr = [NMAP_BINARY,  addr, '-oX', xmlout, '-sV', '-p', port_list] # '--unprivileged',
 	out, err = Popen(cmdstr, stdout=PIPE, stderr=PIPE).communicate()
 	res = {'out':out.decode('utf-8'),'err':err.decode('utf-8'),'xmlfilename':xmlout}
 	logger.info(f'[nmapres] filename={xmlout} addr={addr} res={len(res)} stdout:{len(out)} stderr:{len(err)} ')
@@ -89,7 +89,11 @@ def scan_path(xmllist:list, engine:Engine, dbtype:str):
 					session.add(scan)
 					session.commit()
 					# logger.info(f'[spscan] {(datetime.now()-t0).total_seconds()} scan:{scan}')
-					db_hostcount,db_portcount = send_hosts_to_db(db_xml.file_id, scan.scan_id, session, dbtype)
+					try:
+						db_hostcount,db_portcount = send_hosts_to_db(db_xml.file_id, scan.scan_id, session, dbtype)
+					except InvalidXMLFile as e:
+						logger.error(f'[SP]] {e} file:{xmlf} db_xml:{db_xml}')
+						continue
 					# logger.info(f'[spsend] {(datetime.now()-t0).total_seconds()} send done {db_hostcount},{db_portcount}')
 					scan = session.query(Scan).filter(Scan.scan_id == scan.scan_id).first()
 					scan.host_count = db_hostcount
@@ -111,7 +115,10 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:st
 	refresh_count = 0
 	port_count = 0
 	db_xml = session.query(XMLFile).filter(XMLFile.file_id == db_xml_id).first()
-	if db_xml.valid:
+	if not db_xml.valid:
+		logger.warning(f'[send2db] [!] db_xml not valid {db_xml}')
+		return 0,0
+	else:
 		scan = session.query(Scan).filter(Scan.scan_id == scan_id).first()
 		# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
 		try:
@@ -121,45 +128,53 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:st
 			logger.error(errmsg)
 			os.rename(db_xml.xml_filename, f'{db_xml.xml_filename}.invalid')
 			raise e
-		db_hosts = session.query(Host).all()
-
-		for idx, xhost in enumerate(xml_hosts):
-			# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} idx:{idx}/{len(xml_hosts)}')# {xhost.ip_address}')
-			if xhost.ip_address in [k.ip_address for k in db_hosts]:
-				#xhost.refresh(db_xml.file_id, scan.scan_id)
-				host_ = session.query(Host).filter(Host.ip_address == xhost.ip_address).first()
-				refresh_count += 1
-				host_.refresh_count += 1
-				host_.scan_count += 1
-				host_.last_seen_xml_id = db_xml.file_id
-				host_.last_seen_scan_id = scan.scan_id
-				#session.commit()
+		if len(xml_hosts) == 0:
+			logger.warning(f'[send2db] [!] db_xml not valid {db_xml} no xml_hosts')
+			return 0,0
+		else:
+			db_hosts = session.query(Host).all()
+			for idx, xhost in enumerate(xml_hosts):
+				# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} idx:{idx}/{len(xml_hosts)}')# {xhost.ip_address}')
+				if xhost.ip_address in [k.ip_address for k in db_hosts]:
+					host_ = session.query(Host).filter(Host.ip_address == xhost.ip_address).first()
+					if len(xhost.port_list) != len(host_.port_list):
+						#logger.warning(f'[!] checkportlist xhost.port_list:{xhost.port_list} host_.port_list:{host_.port_list}')
+						host_.port_list = ','.join(set((xhost.port_list+','+host_.port_list).split(',')))
+					refresh_count += 1
+					host_.refresh_count += 1
+					host_.last_seen_xml_id = db_xml.file_id
+					host_.last_seen_scan_id = scan.scan_id
+					#session.commit()
+				else:
+					session.add(xhost)
+					xhost.last_seen_xml_id = db_xml.file_id
+					xhost.last_seen_scan_id = scan.scan_id
+					newhosts_count += 1
+			# db_hosts_count = session.query(Host).count()
+			#logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
+			for host in session.query(Host).all():
+				hp = db_xml.get_host_ports(host.ip_address)
+				for port in hp:
+					pname = port.get('name')
+					prod = port.get('product')
+					proto = port.get('protocol')
+					new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
+					session.add(new_port)
+					port_count += 1
+				host.port_count = len(host.port_list.split(','))
+			#logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count} port_count:{port_count} db_xml:{db_xml}')
+			# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
+			db_xml.process_time = (datetime.now()-t0).total_seconds()
+			session.commit()
+			r_hostcount = len(xml_hosts) # session.query(Host).filter(Host.file_id == db_xml.file_id).count()
+			r_portcount = port_count # session.query(Port).filter(Port.file_id == db_xml.file_id).count()
+			if r_hostcount == 0:
+				logger.error(f'[send2db] r_hostcount={r_hostcount} r_portcount={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_count} db_xml.file_id={db_xml.file_id} {db_xml.xml_filename}')
+			if r_portcount == 0:
+				logger.warning(f'[send2db] r_portcount={r_portcount} r_hostcount={r_hostcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_count} db_xml.file_id={db_xml.file_id} {db_xml.xml_filename}')
 			else:
-				session.add(xhost)
-				xhost.refresh_count += 1
-				xhost.scan_count += 1
-				xhost.last_seen_xml_id = db_xml.file_id
-				xhost.last_seen_scan_id = scan.scan_id
-				newhosts_count += 1
-		# db_hosts_count = session.query(Host).count()
-		#logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
-		for host in session.query(Host).all():
-			hp = db_xml.get_host_ports(host.ip_address)
-			for port in hp:
-				pname = port.get('name')
-				prod = port.get('product')
-				proto = port.get('protocol')
-				new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
-				session.add(new_port)
-				port_count += 1
-		#logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count} portcount:{port_count} db_xml:{db_xml}')
-		# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
-		db_xml.process_time = (datetime.now()-t0).total_seconds()
-		session.commit()
-		r_hostcount = session.query(Host).filter(Host.scan_id == scan.scan_id).count()
-		r_portcount = session.query(Port).filter(Port.scan_id == scan.scan_id).count()
-		logger.debug(f'[send2db] t:{(datetime.now()-t0).total_seconds()} rhc={r_hostcount} rpc={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_count}')
-		return r_hostcount, r_portcount
+				logger.debug(f'[send2db] t:{(datetime.now()-t0).total_seconds()} rhc={r_hostcount} rpc={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_count}')
+			return r_hostcount, r_portcount
 
 
 def scan_xml_file(xmlfilename:str, session:sessionmaker, dbtype:str):
@@ -189,11 +204,7 @@ def scan_xml_file(xmlfilename:str, session:sessionmaker, dbtype:str):
 
 
 def refresh_db(session):
-	all_hosts = session.query(Host).all()
-	for host in all_hosts:
-		host.refresh()
-	session.commit()
-
+	pass
 
 def main():
 	parser = OptionParser(usage="%prog [options] --file xmlfile")

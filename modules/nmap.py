@@ -128,15 +128,20 @@ class XMLFile(Base):
 		#h = self.get_host(ip_addr)
 		#hp = [k.attrib for k in h if k.tag=='port']
 		# root = self.et_xml_parse()
+		ports = []
 		try:
-			ports = [k for k in self.root.find(f".//*[@addr='{ip_addr}']../ports")]
+			ports = self.root.find(f".//*[@addr='{ip_addr}']../ports") or []
 		except TypeError as e:
-			#logger.error(f'{e} ip_addr:{ip_addr}')
+			logger.error(f'{e} ip_addr:{ip_addr}')
 			return []
 		# create port dict for each port
 		hp = []
-		for p in ports:
-			if p.tag != 'extraports':
+		# ports = [k for k in ports_ if k.find('state').get('state') =='filtered']
+		for p in [k for k in ports if k.tag =='port']:
+			#print(f'p:{p}')
+			chk = p.find('state').get('state')
+			#print(f'chk:{chk}')
+			if chk =='open':
 				p_portid = p.get('portid')
 				if not p_portid:
 					logger.warning(f'[!] no portid found for {p} ipaddr:{ip_addr}')
@@ -167,9 +172,9 @@ class XMLFile(Base):
 				#hosts_ = self.root.findall('.//host/.')
 				hosts_ = [h for h in self.root.findall('./host') if h.get('starttime')]
 			except AttributeError as e:
-				logger.error(f'[gh] {self} {e} scanid:{scanid}')
+				errmsg = f'[gh] {self} {e} scanid:{scanid}'
 				self.valid = False
-				return hosts
+				raise InvalidXMLFile(errmsg)
 			if len(hosts_) == 0:
 				errmsg = f'[?] {self} hosts_ empty?'
 				self.valid = False
@@ -177,13 +182,14 @@ class XMLFile(Base):
 			for h in hosts_:
 				starttime = h.get('starttime')
 				if not starttime:
-					logger.warning(f'[!] no starttime found for {h} xml_filename:{self.xml_filename}')
+					errmsg = f'[!] no starttime found for {h} xml_filename:{self.xml_filename}'
 					self.valid = False
-					break
+					raise InvalidXMLFile(errmsg)
 				endtime = h.get('endtime')
 				if not endtime:
-					logger.warning(f'[!] no endtime found for {h}')
-					continue
+					errmsg = f'[!] no endtime found for {h}'
+					self.valid = False
+					raise InvalidXMLFile(errmsg)
 				ip_address = h.find("address[@addrtype='ipv4']").get('addr')
 				try:
 					vendor = h.find("address[@addrtype='mac']").get('vendor')
@@ -198,22 +204,27 @@ class XMLFile(Base):
 				except AttributeError as e:
 					hostname = ip_address
 				hp = self.get_host_ports(ip_address)
-				try:
-					host_portlist = ','.join(k['portid'] for k in hp)
-				except TypeError as e:
-					logger.warning(e)
-					host_portlist = ''
-				try:
-					host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid, host_portlist)
-					hosts.append(host)
-				except TypeError as e:
-					logger.error(f'[!] {e} h:{h} starttime:{starttime} endtime:{endtime} ip_address:{ip_address} vendor:{vendor} macaddr:{macaddr} hostname:{hostname} hp:{hp} host_portlist:{host_portlist}')
-					continue
+				host_portlist = ''
+				if hp:
+					try:
+						host_portlist = ','.join(k['portid'] for k in hp)
+					except TypeError as e:
+						raise InvalidXMLFile(e)
+				if len(host_portlist) >0:
+					try:
+						host = Host(ip_address, macaddr, vendor, hostname, starttime, endtime, self.file_id, scanid, host_portlist)
+						hosts.append(host)
+					except TypeError as e:
+						errmsg = f'[!] {e} h:{h} starttime:{starttime} endtime:{endtime} ip_address:{ip_address} vendor:{vendor} macaddr:{macaddr} hostname:{hostname} hp:{hp} host_portlist:{host_portlist}'
+						raise InvalidXMLFile(errmsg)
 		else:
-			logger.warning(f'[?] {self} not valid?')
-		if len(hosts) == 0 :
-			logger.warning(f'[?] {self} no hosts! not valid?')
+			errmsg = f'[?] {self} not valid?'
 			self.valid = False
+			raise InvalidXMLFile(errmsg)
+		if len(hosts) == 0 :
+			errmsg = f'[?] {self} no hosts! not valid?'
+			self.valid = False
+			raise InvalidXMLFile(errmsg)
 		return hosts
 
 class Scan(Base):
@@ -221,25 +232,24 @@ class Scan(Base):
 	scan_id = Column(Integer, primary_key=True)
 	file_id = Column(Integer, ForeignKey('xmlfiles.file_id'))
 	scan_date_todb = Column(DateTime)
-	scan_count = Column(Integer)
 	host_count = Column(Integer)
 	port_count = Column(Integer)
 	def __init__(self, file_id, scan_date_todb):
 		self.file_id = file_id
 		self.scan_date_todb = scan_date_todb
-		self.scan_count = 0
 		self.host_count = 0
 		self.port_count = 0
 
 	def __repr__(self):
-		return f'Scan id={self.scan_id} fileid={self.file_id} hc:{self.host_count} pc:{self.port_count} '
+		return f'<Scan id={self.scan_id} fileid={self.file_id} hc:{self.host_count} pc:{self.port_count}>'
 
 class Host(Base):
 	__tablename__ = 'hosts'
 	host_id = Column(Integer, primary_key=True)
-	xml_id = Column(Integer)
+	file_id = Column(Integer)
 	ip_address = Column(String(255))
-	portlist = Column(String(255))
+	port_list = Column(String(255))
+	port_count = Column(Integer)
 	mac_address = Column(String(255))
 	vendor = Column(String(255))
 	hostname = Column(String(255))
@@ -250,14 +260,14 @@ class Host(Base):
 	scan_id = Column(Integer)
 	last_seen_scan_id = Column(Integer)
 	last_seen_xml_id = Column(Integer)
-	scan_count = Column(Integer)
 	refresh_count = Column(Integer)
 
-	def __init__(self, ip_address, mac_address, vendor, hostname, starttime,endtime, xml_id, scanid, portlist):
+	def __init__(self, ip_address, mac_address, vendor, hostname, starttime,endtime, file_id, scanid, port_list):
 		self.scan_id = scanid
-		self.xml_id = xml_id
+		self.file_id = file_id
 		self.ip_address = ip_address
-		self.portlist = portlist
+		self.port_list = port_list
+		self.port_count = len(port_list.split(','))
 		self.mac_address = mac_address
 		self.vendor = vendor
 		self.hostname = hostname
@@ -265,11 +275,10 @@ class Host(Base):
 		self.endtime = datetime.fromtimestamp(int(endtime))
 		self.first_seen = self.starttime # datetime.now()
 		self.last_seen = self.first_seen
-		self.scan_count = 1
 		self.refresh_count = 0
 
 	def __repr__(self):
-		return f'<Host id: {self.host_id} xmlid:{self.xml_id} ipv4:{self.ip_address} hostname:{self.hostname}>'
+		return f'<Host id: {self.host_id} xmlid:{self.file_id} ipv4:{self.ip_address} hostname:{self.hostname}>'
 
 	def refresh(self, xmlfileid:int, scanid:int) -> None:
 		self.refresh_count += 1
