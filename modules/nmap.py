@@ -311,15 +311,14 @@ class Port(Base):
 
 class LogEntry(Base):
 	__tablename__ = 'scanlog'
-	id = Column(Integer, primary_key=True)
+	log_id = Column(Integer, primary_key=True)
+	timestamp = Column(DateTime)
 	scan_id = Column(Integer)#, ForeignKey('scans.scan_id'))
 	host_id = Column(Integer)#, ForeignKey('hosts.port_id'))
 	port_id = Column(Integer)#, ForeignKey('ports.host_id'))
-
-	date = Column(String(255))
-	def __init__(self, scan_id, host_id, port_id, date):
+	def __init__(self, scan_id, host_id, port_id, timestamp):
 		self.scan_id = scan_id
 		self.host_id = host_id
 		self.port_id = port_id
-		self.date = date
+		self.timestamp = timestamp
 

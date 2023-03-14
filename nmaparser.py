@@ -15,7 +15,7 @@ from threading import Thread
 from datetime import datetime
 from modules.database import get_engine
 MAX_WORKERS = cpu_count()
-from modules.nmap import Scan, Host, Port, XMLFile, db_init, InvalidXMLFile
+from modules.nmap import Scan, Host, Port, XMLFile,LogEntry, db_init, InvalidXMLFile
 VERSION = "0.1.3"
 RELEASE_DATE = "2023-03-11"
 NMAP_BINARY = '/usr/local/bin/nmap'
@@ -161,6 +161,9 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:st
 					new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
 					session.add(new_port)
 					port_count += 1
+					session.commit()
+					log_entry = LogEntry(scan_id=scan.scan_id, host_id=host.host_id, port_id=new_port.port_id,timestamp=new_port.first_seen)
+					session.add(log_entry)
 				host.port_count = len(host.port_list.split(','))
 			#logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count} port_count:{port_count} db_xml:{db_xml}')
 			# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
