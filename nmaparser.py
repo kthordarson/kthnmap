@@ -5,7 +5,7 @@ import os, glob, sys, re, subprocess
 import xml.etree.ElementTree as ET
 from optparse import OptionParser
 from configparser import ConfigParser
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text, cast, extract, func
 from sqlalchemy.orm import (DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session)
 from subprocess import Popen, PIPE
 from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor, as_completed)
@@ -74,7 +74,6 @@ def scan_path(xmllist:list, engine:Engine, dbtype:str):
 			for idx,xmlf in enumerate(new_xmlfiles):
 				db_xml = None
 				t0 = datetime.now()
-
 				try:
 					db_xml = XMLFile(xmlf)
 					#logger.info(f'[spstart] {idx}/{len(new_xmlfiles)} {xmlf}')
@@ -111,73 +110,80 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:st
 	Session = sessionmaker(bind=engine)
 	session = Session()
 	t0 = datetime.now()
-	newhosts_count = 0
-	refresh_count = 0
-	port_count = 0
+	newhosts_counter = 0
+	refresh_counter = 0
+	port_counter = 0
 	db_xml = session.query(XMLFile).filter(XMLFile.file_id == db_xml_id).first()
 	if not db_xml.valid:
 		logger.warning(f'[send2db] [!] db_xml not valid {db_xml}')
 		return 0,0
-	else:
-		scan = session.query(Scan).filter(Scan.scan_id == scan_id).first()
-		# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
-		try:
-			xml_hosts = db_xml.get_hosts(scan.scan_id)
-		except InvalidXMLFile as e:
-			errmsg = f'[send2db] [!] InvalidXMLFile {e} db_xml:{db_xml.xml_filename}'
-			logger.error(errmsg)
-			os.rename(db_xml.xml_filename, f'{db_xml.xml_filename}.invalid')
-			raise e
-		if len(xml_hosts) == 0:
-			logger.warning(f'[send2db] [!] db_xml not valid {db_xml} no xml_hosts')
-			return 0,0
+	scan = session.query(Scan).filter(Scan.scan_id == scan_id).first()
+	# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
+	try:
+		xml_hosts = db_xml.get_hosts(scan.scan_id)
+	except InvalidXMLFile as e:
+		errmsg = f'[send2db] [!] InvalidXMLFile {e} db_xml:{db_xml.xml_filename}'
+		logger.error(errmsg)
+		os.rename(db_xml.xml_filename, f'{db_xml.xml_filename}.invalid')
+		raise e
+	if len(xml_hosts) == 0:
+		logger.warning(f'[send2db] [!] db_xml not valid {db_xml} no xml_hosts')
+		return 0,0
+	db_hosts = session.query(Host).all()
+	for idx, xhost in enumerate(xml_hosts):
+		if not db_xml.get_host_ports(xhost.ip_address):
+			logger.warning(f'[send2db] {xhost} no ports')
+		# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} idx:{idx}/{len(xml_hosts)}')# {xhost.ip_address}')
+		if xhost.ip_address in [k.ip_address for k in db_hosts]:
+			if len(db_xml.get_host_ports(xhost.ip_address)) == 0:
+				logger.warning(f'[send2db] {xhost} no ports')
+			# update host
+			host_ = session.query(Host).filter(Host.ip_address == xhost.ip_address).first()
+			if len(xhost.port_list) != len(host_.port_list):
+				#logger.warning(f'[!] checkportlist xhost.port_list:{xhost.port_list} host_.port_list:{host_.port_list}')
+				host_.port_list = ','.join(set((xhost.port_list+','+host_.port_list).split(',')))
+			refresh_counter += 1
+			host_.refresh_count += 1
+			host_.last_seen_xml_id = db_xml.file_id
+			host_.last_seen_scan_id = scan.scan_id
+			#session.commit()
 		else:
-			db_hosts = session.query(Host).all()
-			for idx, xhost in enumerate(xml_hosts):
-				# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} idx:{idx}/{len(xml_hosts)}')# {xhost.ip_address}')
-				if xhost.ip_address in [k.ip_address for k in db_hosts]:
-					host_ = session.query(Host).filter(Host.ip_address == xhost.ip_address).first()
-					if len(xhost.port_list) != len(host_.port_list):
-						#logger.warning(f'[!] checkportlist xhost.port_list:{xhost.port_list} host_.port_list:{host_.port_list}')
-						host_.port_list = ','.join(set((xhost.port_list+','+host_.port_list).split(',')))
-					refresh_count += 1
-					host_.refresh_count += 1
-					host_.last_seen_xml_id = db_xml.file_id
-					host_.last_seen_scan_id = scan.scan_id
-					#session.commit()
-				else:
-					session.add(xhost)
-					xhost.last_seen_xml_id = db_xml.file_id
-					xhost.last_seen_scan_id = scan.scan_id
-					newhosts_count += 1
-			# db_hosts_count = session.query(Host).count()
-			#logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
-			for host in session.query(Host).all():
-				hp = db_xml.get_host_ports(host.ip_address)
-				for port in hp:
-					pname = port.get('name')
-					prod = port.get('product')
-					proto = port.get('protocol')
-					new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
-					session.add(new_port)
-					port_count += 1
-					session.commit()
-					log_entry = LogEntry(scan_id=scan.scan_id, host_id=host.host_id, port_id=new_port.port_id,timestamp=new_port.first_seen)
-					session.add(log_entry)
-				host.port_count = len(host.port_list.split(','))
-			#logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count} port_count:{port_count} db_xml:{db_xml}')
-			# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
-			db_xml.process_time = (datetime.now()-t0).total_seconds()
+			#new host
+			session.add(xhost)
+			xhost.last_seen_xml_id = db_xml.file_id
+			xhost.last_seen_scan_id = scan.scan_id
+			newhosts_counter += 1
+	session.commit()
+	# db_hosts_count = session.query(Host).count()
+	#logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
+	for host in session.query(Host).all():
+		hp = db_xml.get_host_ports(host.ip_address)
+		host_port_count = 0
+		for port in hp:
+			pname = port.get('name')
+			prod = port.get('product')
+			proto = port.get('protocol')
+			new_port = Port(portnumber=port.get('portid'), first_seen=str(db_xml.scanstart_str), host_id=host.host_id, scan_id=scan.scan_id, file_id=db_xml.file_id, name=pname, product=prod, protocol=proto)
+			session.add(new_port)
 			session.commit()
-			r_hostcount = len(xml_hosts) # session.query(Host).filter(Host.file_id == db_xml.file_id).count()
-			r_portcount = port_count # session.query(Port).filter(Port.file_id == db_xml.file_id).count()
-			if r_hostcount == 0:
-				logger.error(f'[send2db] r_hostcount={r_hostcount} r_portcount={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_count} db_xml.file_id={db_xml.file_id} {db_xml.xml_filename}')
-			if r_portcount == 0:
-				logger.warning(f'[send2db] r_portcount={r_portcount} r_hostcount={r_hostcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_count} db_xml.file_id={db_xml.file_id} {db_xml.xml_filename}')
-			else:
-				logger.debug(f'[send2db] t:{(datetime.now()-t0).total_seconds()} rhc={r_hostcount} rpc={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_count}')
-			return r_hostcount, r_portcount
+			log_entry = LogEntry(scan_id=scan.scan_id, host_id=host.host_id, port_id=new_port.port_id,timestamp=new_port.first_seen)
+			session.add(log_entry)
+			port_counter += 1
+			host_port_count += 1
+		host.port_count = host_port_count # len(host.port_list.split(','))
+	#logger.debug(f'[sh] t:{(datetime.now()-t0).total_seconds()} done db_hosts={db_hosts_count} nhc:{nh_count} rc:{r_count} port_count:{port_count} db_xml:{db_xml}')
+	# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
+	db_xml.process_time = (datetime.now()-t0).total_seconds()
+	session.commit()
+	r_hostcount = len(xml_hosts) # session.query(Host).filter(Host.file_id == db_xml.file_id).count()
+	r_portcount = port_counter # session.query(Port).filter(Port.file_id == db_xml.file_id).count()
+	if r_hostcount == 0:
+		logger.error(f'[send2db] r_hostcount={r_hostcount} r_portcount={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_counter} db_xml.file_id={db_xml.file_id} {db_xml.xml_filename}')
+	if r_portcount == 0:
+		logger.warning(f'[send2db] r_portcount={r_portcount} r_hostcount={r_hostcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_counter} db_xml.file_id={db_xml.file_id} {db_xml.xml_filename}')
+	else:
+		logger.debug(f'[send2db] t:{(datetime.now()-t0).total_seconds()} rhc={r_hostcount} rpc={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_counter}')
+	return r_hostcount, r_portcount
 
 
 def scan_xml_file(xmlfilename:str, session:sessionmaker, dbtype:str):
@@ -219,6 +225,7 @@ def main():
 	parser.add_option("--nmap", dest="run_nmap", help="run nmap scan", action="store_true",  default=False)
 	parser.add_option("--refresh", dest="refresh_db", help="refresh database", action="store_true",  default=False)
 	parser.add_option("--dbtype", dest="dbtype", help="sqlite/mysql/psql", action="store",  default='sqlite')
+	parser.add_option("--dbinfo", dest="dbinfo", help="dbinfo", action="store_true")
 	(options, args) = parser.parse_args()
 	engine = get_engine(options.dbtype)
 	Session = sessionmaker(bind=engine, expire_on_commit=False)
@@ -251,9 +258,26 @@ def main():
 		scan_path(xmllist, engine, options.dbtype)
 	elif options.refresh_db:
 		refresh_db(session)
+	elif options.dbinfo:
+		all_hosts = session.query(Host).all()
+		print(f'hosts={session.query(Host).count()} ports={session.query(Port).count()} logentries={session.query(LogEntry).count()} scans={session.query(Scan).count()} xmlfiles={session.query(XMLFile).count()}')
+		for host in all_hosts:
+			logentries = session.query(LogEntry).filter(LogEntry.host_id == host.host_id).count()
+			port_entries = session.query(Port).filter(Port.host_id == host.host_id).count()
+			l = [(k.host_id, k.timestamp, k.count) for k in session.query(LogEntry.log_id, LogEntry.host_id,LogEntry.timestamp, func.count(LogEntry.host_id).label('count')).filter(LogEntry.host_id==host.host_id).group_by(func.month(LogEntry.timestamp)).group_by(LogEntry.host_id).all()]
+			if len(l)>3:
+				print(f'host {host.ip_address} l={logentries} p={port_entries} {len(l)}')
 
 if __name__ == "__main__":
 	main()
-
-
-
+# [(k.host_id, k.timestamp, k.count) for k in session.query(LogEntry.log_id, LogEntry.host_id,LogEntry.timestamp, func.count(LogEntry.host_id).label('count')).filter(LogEntry.host_id==10).group_by(func.month(LogEntry.timestamp)).group_by(LogEntry.host_id).all()]
+# session.query(LogEntry.log_id, LogEntry.host_id,LogEntry.timestamp, func.count(LogEntry.host_id).label('count')).filter(LogEntry.host_id==10).group_by(func.month(LogEntry.timestamp)).group_by(LogEntry.host_id).all()
+# [k for k in session.query(LogEntry.log_id.label('logid'),LogEntry.timestamp, func.count(LogEntry.log_id).label('count')).filter(LogEntry.host_id==10).group_by(func.day(LogEntry.timestamp)).filter_by()]
+# l0 = session.query(LogEntry, func.count(LogEntry.log_id).label('count')).filter(LogEntry.host_id==10).group_by(func.day(LogEntry.timestamp)).all()
+# len([k for k in session.query(LogEntry.timestamp, func.count(LogEntry.log_id).label('count')).group_by(LogEntry.timestamp).order_by(LogEntry.timestamp).filter_by()])
+# logs grouped....
+# session.query(func.DATE(Host.first_seen)).distinct().all()
+# session.query(func.DATE(LogEntry.timestamp)).distinct().all()
+# session.query(LogEntry).group_by(func.date_format(LogEntry.timestamp, '%H')).all()
+# session.query(LogEntry).group_by(func.year(LogEntry.timestamp), func.month(LogEntry.timestamp)).all()
+#session.query(LogEntry, func.count(LogEntry.log_id).label('count')).group_by(func.day(LogEntry.timestamp)).all()
