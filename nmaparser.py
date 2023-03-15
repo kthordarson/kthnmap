@@ -35,9 +35,6 @@ def exec_nmap(addr, ports):
 		f.write(f'err: {err.decode("utf-8")}\n')
 	return res
 
-def db_scan(scan, session):
-	pass
-
 
 def run_nmap(session):
 	with open(ADDRESS_FILE, 'r') as f:
@@ -62,8 +59,7 @@ def run_nmap(session):
 def scan_path(xmllist:list, engine:Engine, dbtype:str):
 	engine = get_engine(dbtype)
 	Session = sessionmaker(bind=engine)
-	xtasks = []
-	send_threads = []
+	results = []
 	with Session() as session:
 		db_xmlfiles = session.query(XMLFile).all()
 		db_xmlfilenames = [k.xml_filename for k in db_xmlfiles]
@@ -81,30 +77,10 @@ def scan_path(xmllist:list, engine:Engine, dbtype:str):
 					logger.error(f'[!] {e} file:{xmlf}')
 					os.rename(xmlf, f'{xmlf}.invalid')
 					continue
-				if db_xml:
-					session.add(db_xml)
-					session.commit()
-					scan = Scan(db_xml.file_id, datetime.now())
-					session.add(scan)
-					session.commit()
-					# logger.info(f'[spscan] {(datetime.now()-t0).total_seconds()} scan:{scan}')
-					try:
-						db_hostcount,db_portcount = send_hosts_to_db(db_xml.file_id, scan.scan_id, session, dbtype)
-					except InvalidXMLFile as e:
-						logger.error(f'[SP]] {e} file:{xmlf} db_xml:{db_xml}')
-						continue
-					# logger.info(f'[spsend] {(datetime.now()-t0).total_seconds()} send done {db_hostcount},{db_portcount}')
-					scan = session.query(Scan).filter(Scan.scan_id == scan.scan_id).first()
-					scan.host_count = db_hostcount
-					scan.port_count = db_portcount
-					session.commit()
-					#ahc = session.query(Host).count()
-					#apc = session.query(Port).count()
-					logger.debug(f'[SP] {idx} files of {len(new_xmlfiles)} timer={(datetime.now()-t0).total_seconds()}  ')#bhc={db_hostcount} shc:{scan.host_count} spc:{scan.port_count} {ahc}/{apc}')
+				results.append(db_xml)
+	return results
 
-
-
-def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:str):
+def send_hosts_to_db(db_xml_id:int, scan_id:int,  dbtype:str):
 	# logger.info(f'[sp] {db_xml} returned {len(xml_hosts)} hosts from {xmlf}')
 	engine = get_engine(dbtype)
 	Session = sessionmaker(bind=engine)
@@ -118,9 +94,9 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:st
 		logger.warning(f'[send2db] [!] db_xml not valid {db_xml}')
 		return 0,0
 	scan = session.query(Scan).filter(Scan.scan_id == scan_id).first()
-	# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} ')
+	# logger.info(f'[send2db] timer: {(datetime.now()-t0).total_seconds()} db_xml_id={db_xml_id} scanid={scan_id} scan:{scan}')
 	try:
-		xml_hosts = db_xml.get_hosts(scan.scan_id)
+		xml_hosts = db_xml.get_hosts(scan_id)
 	except InvalidXMLFile as e:
 		errmsg = f'[send2db] [!] InvalidXMLFile {e} db_xml:{db_xml.xml_filename}'
 		logger.error(errmsg)
@@ -182,7 +158,7 @@ def send_hosts_to_db(db_xml_id:int, scan_id:int, session:sessionmaker, dbtype:st
 	if r_portcount == 0:
 		logger.warning(f'[send2db] r_portcount={r_portcount} r_hostcount={r_hostcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_counter} db_xml.file_id={db_xml.file_id} {db_xml.xml_filename}')
 	else:
-		logger.debug(f'[send2db] t:{(datetime.now()-t0).total_seconds()} rhc={r_hostcount} rpc={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_counter}')
+		logger.debug(f'[send2db] t:{(datetime.now()-t0).total_seconds()} db_xml.process_time={db_xml.process_time} rhc={r_hostcount} rpc={r_portcount} xh={len(xml_hosts)} dbh={len(db_hosts)} pc={port_counter}')
 	return r_hostcount, r_portcount
 
 
@@ -255,7 +231,22 @@ def main():
 				logger.error(e)
 	elif options.xmlpath:
 		xmllist = glob.glob(options.xmlpath + '/*.xml')
-		scan_path(xmllist, engine, options.dbtype)
+		xml_files = scan_path(xmllist, engine, options.dbtype)
+		_ = [session.add(xmlfile) for xmlfile in xml_files]
+		session.commit()
+		_ = [session.add(Scan(xml_file.file_id, datetime.now())) for xml_file in xml_files]
+		session.commit()
+		logger.info(f'[sp] xml_files={len(xml_files)} dbxml={session.query(XMLFile).count()} dbscan={session.query(Scan).count()}')
+		tasks = []
+		with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+			for xml_file in xml_files:
+				scan_id = session.query(Scan).filter(Scan.file_id == xml_file.file_id).first().scan_id
+				tasks.append(executor.submit(send_hosts_to_db, xml_file.file_id, scan_id, options.dbtype))
+		logger.debug(f'[sp] tasks={len(tasks)}')
+		for task in tasks:
+			db_hostcount, db_portcount = task.result()
+			logger.info(f'[sp] {task} db_hostcount={db_hostcount} db_portcount={db_portcount}')
+				# send_hosts_to_db(xml_file.file_id, scan.scan_id, session, dbtype)
 	elif options.refresh_db:
 		refresh_db(session)
 	elif options.dbinfo:
@@ -264,7 +255,7 @@ def main():
 		for host in all_hosts:
 			logentries = session.query(LogEntry).filter(LogEntry.host_id == host.host_id).count()
 			port_entries = session.query(Port).filter(Port.host_id == host.host_id).count()
-			l = [(k.host_id, k.timestamp, k.count) for k in session.query(LogEntry.log_id, LogEntry.host_id,LogEntry.timestamp, func.count(LogEntry.host_id).label('count')).filter(LogEntry.host_id==host.host_id).group_by(func.month(LogEntry.timestamp)).group_by(LogEntry.host_id).all()]
+			l = [(k.host_id, k.timestamp, k.count) for k in session.query(LogEntry.log_id, LogEntry.host_id, LogEntry.timestamp, func.count(LogEntry.host_id).label('count')).filter(LogEntry.host_id==host.host_id).group_by(func.day(LogEntry.timestamp)).group_by(LogEntry.host_id).all()]
 			if len(l)>3:
 				print(f'host {host.ip_address} l={logentries} p={port_entries} {len(l)}')
 
@@ -281,3 +272,4 @@ if __name__ == "__main__":
 # session.query(LogEntry).group_by(func.date_format(LogEntry.timestamp, '%H')).all()
 # session.query(LogEntry).group_by(func.year(LogEntry.timestamp), func.month(LogEntry.timestamp)).all()
 #session.query(LogEntry, func.count(LogEntry.log_id).label('count')).group_by(func.day(LogEntry.timestamp)).all()
+# session.query(func.count(LogEntry.host_id), extract('year', LogEntry.timestamp), extract('month', LogEntry.timestamp)).group_by(extract('month',LogEntry.timestamp), LogEntry.host_id).all()

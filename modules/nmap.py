@@ -315,9 +315,9 @@ class LogEntry(Base):
 	__tablename__ = 'scanlog'
 	log_id = Column(Integer, primary_key=True)
 	timestamp = Column(DateTime)
-	scan_id = Column(Integer)#, ForeignKey('scans.scan_id'))
-	host_id = Column(Integer)#, ForeignKey('hosts.port_id'))
-	port_id = Column(Integer)#, ForeignKey('ports.host_id'))
+	scan_id = Column(Integer, ForeignKey('scans.scan_id'))
+	host_id = Column(Integer, ForeignKey('hosts.host_id'))
+	port_id = Column(Integer, ForeignKey('ports.port_id'))
 	def __init__(self, scan_id, host_id, port_id, timestamp):
 		self.scan_id = scan_id
 		self.host_id = host_id
