@@ -55,7 +55,7 @@ class XMLFile(Base):
 			self.valid = False
 
 	def __repr__(self):
-		return f'<XMLFile id:{self.file_id} xml_filename:{self.xml_filename} scanner:{self.scanner} sd:{self.scandate} valid:{self.valid}> '
+		return f'<XMLFile id:{self.file_id} xml_filename:{os.path.basename(self.xml_filename)} scanner:{self.scanner} sd:{self.scandate} valid:{self.valid}> '
 
 	def et_xml_parse(self):
 		root = []
@@ -307,7 +307,9 @@ class Port(Base):
 		self.last_seen = self.first_seen
 		self.name = name if name else 'noname'
 		self.product = product if product else 'noproduct'
-		self.protocol = protocol
+		self.protocol = protocol if protocol else 'noproto'
+	def __repr__(self):
+		return f'<Port [ {self.name} ] id:{self.port_id} portnumber:{self.portnumber} s:{self.scan_id} f:{self.file_id} h:{self.host_id} >'
 
 class LogEntry(Base):
 	__tablename__ = 'scanlog'
@@ -321,4 +323,6 @@ class LogEntry(Base):
 		self.host_id = host_id
 		self.port_id = port_id
 		self.timestamp = timestamp
+	def __repr__(self):
+		return f'<Log id:{self.log_id} sid:{self.scan_id} t:{self.timestamp} [ h:{self.host_id}] p:{self.port_id} ]>'
 
