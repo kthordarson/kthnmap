@@ -130,6 +130,7 @@ class XMLFile(Base):
 		# root = self.et_xml_parse()
 		ports = []
 		try:
+			self.root = self.et_xml_parse()
 			ports = self.root.find(f".//*[@addr='{ip_addr}']../ports") or []
 		except TypeError as e:
 			logger.error(f'{e} ip_addr:{ip_addr}')
