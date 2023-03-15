@@ -18,9 +18,9 @@ MAX_WORKERS = cpu_count()
 from modules.nmap import Scan, Host, Port, XMLFile,LogEntry, db_init, InvalidXMLFile
 VERSION = "0.1.3"
 RELEASE_DATE = "2023-03-11"
-NMAP_BINARY = '/usr/local/bin/nmap'
+NMAP_BINARY = '/usr/local/bin/nmap' if os.sys.platform == 'linux' else 'c:/apps/nmap/nmap.exe'
 ADDRESS_FILE = 'iplist2.txt'
-PORTLIST_FILE = 'portlist2.txt'
+PORTLIST_FILE = 'portlist.txt'
 LOGFILE = 'nmaparser.log'
 
 def exec_nmap(addr, ports):
