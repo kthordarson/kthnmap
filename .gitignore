@@ -1,3 +1,4 @@
+*.bak
 *.invalid
 *.log
 *.out

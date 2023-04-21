@@ -50,6 +50,9 @@ class XMLFile(Base):
 			errmsg = f'[X] InvalidXMLFile {e} file: {filename}'
 			self.valid = False
 			raise InvalidXMLFile(errmsg)
+		except FileNotFoundError as e:
+			logger.error(f'[!] FileNotFoundError {e} {type(e)} file: {filename}')
+			self.valid = False
 		except Exception as e:
 			logger.error(f'[X] unhandled exception {e} {type(e)} file: {filename}')
 			self.valid = False
@@ -61,6 +64,10 @@ class XMLFile(Base):
 		root = []
 		try:
 			xmldata = ET.parse(self.xml_filename)
+		except FileNotFoundError as e:
+			logger.error(e)
+			raise e
+		try:
 			root = xmldata.getroot()
 			self.valid = True
 		except ParseError as e:
@@ -134,6 +141,9 @@ class XMLFile(Base):
 			ports = self.root.find(f".//*[@addr='{ip_addr}']../ports") or []
 		except TypeError as e:
 			logger.error(f'{e} ip_addr:{ip_addr}')
+			return []
+		except FileNotFoundError as e:
+			logger.error(f'[!] FileNotFoundError {e} self.xml_filename = {self.xml_filename} ip_addr:{ip_addr}')
 			return []
 		# create port dict for each port
 		hp = []
