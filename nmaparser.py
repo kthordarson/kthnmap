@@ -185,10 +185,10 @@ def scan_xml_file(xmlfilename:str, session:sessionmaker, dbtype:str):
 	session.add(scan)
 	session.commit()
 	hosts = xml_file.get_hosts(scan.scan_id)
-	db_hostcount, db_portcount = send_hosts_to_db(xml_file.file_id, scan.scan_id, session, dbtype)
+	db_hostcount = send_hosts_to_db(xml_file.file_id, scan.scan_id, dbtype)
 	scan = session.query(Scan).filter(Scan.scan_id == scan.scan_id).first()
 	scan.host_count = db_hostcount
-	scan.port_count = db_portcount
+	db_portcount = 0
 	session.commit()
 	logger.debug(f'[sxf] xml:{xml_file.xml_filename} scandate:{xml_file.scandate} scan_id:{scan.scan_id} hosts:{len(hosts)} db_hostcount:{db_hostcount} db_portcount:{db_portcount}') # dbhosts={session.query(Host).count()}')
 
@@ -293,7 +293,11 @@ def main():
 		for host in all_hosts:
 			logentries = session.query(LogEntry).filter(LogEntry.host_id == host.host_id).count()
 			port_entries = session.query(Port).filter(Port.host_id == host.host_id).count()
-			l = [(k.host_id, k.timestamp, k.count) for k in session.query(LogEntry.log_id, LogEntry.host_id, LogEntry.timestamp, func.count(LogEntry.host_id).label('count')).filter(LogEntry.host_id==host.host_id).group_by(func.day(LogEntry.timestamp)).group_by(LogEntry.host_id).all()]
+			try:
+				l = [(k.host_id, k.timestamp, k.count) for k in session.query(LogEntry.log_id, LogEntry.host_id, LogEntry.timestamp, func.count(LogEntry.host_id).label('count')).filter(LogEntry.host_id==host.host_id).group_by(func.day(LogEntry.timestamp)).group_by(LogEntry.host_id).all()]
+			except OperationalError as e:
+				logger.error(e)
+				l = []
 			if len(l)>3:
 				print(f'host {host.ip_address} l={logentries} p={port_entries} {len(l)}')
 
